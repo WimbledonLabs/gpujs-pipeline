@@ -1,0 +1,60 @@
+Implemented (Not-integrated):
+- Colour-cycle
+
+Filters:
+- Kernels:
+    - Bloom
+    - HDR
+    - G. Blur
+    - Box Blur
+    - Motion Blur
+    - Sobel filter
+    - "Edge Detection"
+    - Sharpen
+    - Identity
+
+- Transforms
+    - Greyscale
+    - Sepia
+    - Invert
+    - Skew
+    - Rotate
+    - Scale
+    - Translate
+    - Contrast
+    - Curves
+
+- Simple Functions:
+    - Screen
+    - Multiply
+    - Overlay
+    - Add
+    - Burn
+    - Subtract
+    - Mask
+
+- Other:
+    - Posterize (toon-shading / obama thing)
+    - Overlapping sine waves to make wierd effects
+    - Arbitrary kernel
+    - Gradient
+    - Mandelbrot
+    - Noise (Perlin?)
+    - 3D Renderer
+    - Kaleidoscope
+    - Shader pipeline
+    - Normal Map + lighting
+
+- Shapes
+    - Circle
+    - Axis-aligned rectangles
+    - Triangles
+
+Random:
+- Conway's game of life!!
+
+Other considerations:
+- Creating pipelines
+- Special techniques for accuracy / speedup / workload reduction?
+- Any other special techniques used?
+- Can you adjust parameters to change the method of operation?
