@@ -38,7 +38,7 @@ function sleep(ms) {
       return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-var mode = "cpu";
+var mode = "gpu";
 
 // Input dimensions
 var xsize = 1024;
@@ -104,7 +104,12 @@ var step = gpu.createKernel(function(grid) {
 
     return 1; // There should be no reason to get here...
     // */
-}).mode(mode).dimensions([xsize, ysize]).floatOutput(false).floatTextures(false).debug(true).outputToTexture(false);//.graphical(true);
+}).mode(mode)
+.dimensions([xsize, ysize])
+    .floatOutput(false)
+    .floatTextures(false)
+    .debug(true)
+    .outputToTexture(true);//.graphical(true);
 
 var show = gpu.createKernel(function(grid) {
     var c = grid[this.thread.y][this.thread.x];
@@ -160,6 +165,7 @@ if (mode !== "cpu") {
 
 var i = 0;
 var X = r;
+var Y;
 
 async function test() {
     while (1) {
@@ -168,7 +174,11 @@ async function test() {
         //for (iter=0; iter<i; iter++) {
             X = step(X);
         //}
+        Y = step(X);
+        show(Y);
+        X = step(Y);
         show(X);
+
         await sleep(t);
         if (mode === "cpu") {
             scaled.drawImage(canvas, 0, 0, xsize, ysize,
