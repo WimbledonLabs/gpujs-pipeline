@@ -52,6 +52,7 @@ Filters:
 
 Random:
 - Conway's game of life!!
+- N-body boids
 
 Other considerations:
 - Creating pipelines
