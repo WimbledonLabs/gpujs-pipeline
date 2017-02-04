@@ -4132,7 +4132,7 @@ var functionBuilder = (function() {
 	function splitArray(array, part) {
 		var tmp = [];
 		for(var i = 0; i < array.length; i += part) {
-			tmp.push(array.slice(i, i + part));
+			tmp.push(Array.from(array.slice(i, i + part)));
 		}
 		return tmp;
 	}
@@ -4705,7 +4705,7 @@ var functionBuilder = (function() {
 				if (opt.dimensions.length == 1) {
 					return result;
 				} else if (opt.dimensions.length == 2) {
-					return splitArray(result, opt.dimensions[0]);
+                    return splitArray(result, opt.dimensions[0]);
 				} else if (opt.dimensions.length == 3) {
 					var cube = splitArray(result, opt.dimensions[0] * opt.dimensions[1]);
 					return cube.map(function(x) {
