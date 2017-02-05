@@ -16,58 +16,11 @@ function mouseup(event) {
     isMouseDown = false;
 }
 
-function print_test(event) {
-    //console.log(event);
-}
-
 function half_stgc(x, px, sx) {
-    // out is proportional to x and sx
-
     return (x - px)/sx;
-    //return (x + px)*sx;
 }
-
-function trans(px, py, s) {
-    pan_x = px;
-    pan_y = py;
-    scale_x = s;
-    scale_y = s;
-    redraw();
-}
-
-function test_stgc() {
-    var test_in = [
-        [ 0,    0,   1,  0],
-        [ 50,   0,   1, 50],
-        [256, 256,   2,  0],
-        [384, 256,   2, 64],
-    ];
-
-    for (var i=0; i<test_in.length; i++) {
-        var t = test_in[i];
-        var res = half_stgc(t[0], t[1], t[2]);
-        if (res != t[3]) {
-            console.log("ISSUE WITH stgc");
-            console.log("" + t + " gives " + res);
-        }
-    }
-
-}
-
-test_stgc();
 
 function screen_to_grid_coords(pair) {
-    // pan_x = 50 and scale_x = 0.5 and pair[0] = 50
-    // return [0] = 50
-    //
-    // pan_x = 0 and scale_x = 1 and pair[0] = 0
-    // return [0] = 0
-    //
-    // pan_x = 0 and scale_x = 1 and pair[0] = x
-    // return [0] = x
-    //
-    // pan_x = 100 and scale_x = 1 and pair[0] = x
-    // return [0] = x - 100
     return [
         half_stgc(pair[0], pan_x, scale_x),
         half_stgc(pair[1], pan_y, scale_y),
@@ -83,8 +36,8 @@ function pan_test(event) {
     grid_coords_span.innerHTML = "(" + (grid_coords[0]) + ", " + (grid_coords[1]) + ")";
 
     if (isMouseDown) {
-        pan_x += event.movementX;// * scale_x;
-        pan_y += event.movementY;// * scale_y;
+        pan_x += event.movementX;
+        pan_y += event.movementY;
     }
     redraw();
 }
@@ -92,7 +45,6 @@ function pan_test(event) {
 function scale_up(event) {
     // Basically we need to change pan as well so that screen_to_grid_coords
     // Gives the same value before and after the scale
-    var old_grid_coords = screen_to_grid_coords([event.layerX, event.layerY]);
     var scalingFactor = 1 + Math.abs(event.deltaY / 265.0);
 
     if (event.deltaY > 0) {
@@ -102,18 +54,13 @@ function scale_up(event) {
     scale_x *= scalingFactor;
     scale_y = scale_x;
 
-    /*
-    var new_grid_coords = screen_to_grid_coords([event.layerX, event.layerY]);
-    console.log("Diff: (" + (new_grid_coords[0] - old_grid_coords[0]) + ", " 
-                          + (new_grid_coords[1] - old_grid_coords[1]) + ")");
-
-    pan_x += new_grid_coords[0] - old_grid_coords[0];
-    pan_y += new_grid_coords[1] - old_grid_coords[1];
-
-    new_grid_coords = screen_to_grid_coords([event.layerX, event.layerY]);
-    console.log("Diff: (" + (new_grid_coords[0] - old_grid_coords[0]) + ", " 
-                          + (new_grid_coords[1] - old_grid_coords[1]) + ")");
-    */
+    // The following 2 lines are so the mouse position with respect to it's
+    // location on the grid remains constant while zooming
+    //
+    // Basically half_stgc should return the same value before and after
+    // scaling, so we solve for the pan required to make it so
+    pan_x = event.layerX - (event.layerX - pan_x)*scalingFactor;
+    pan_y = event.layerY - (event.layerY - pan_y)*scalingFactor;
 
     redraw();
     event.preventDefault();
