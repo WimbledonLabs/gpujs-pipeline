@@ -1991,8 +1991,6 @@ var GPUUtils = (function() {
 		} else if (arg instanceof GPUTexture) {
 			return 'Texture';
 		} else {
-            console.log("Unknown argument!!");
-            console.log(arg);
 			return 'Unknown';
 		}
 	}
@@ -4133,7 +4131,6 @@ var functionBuilder = (function() {
 
 	function splitArray(array, part) {
 		var tmp = [];
-        //array = Array.from(array);
 		for(var i = 0; i < array.length; i += part) {
 			tmp.push(array.slice(i, i + part));
 		}
@@ -4577,7 +4574,6 @@ var functionBuilder = (function() {
 			if (!textureCache[programCacheKey]) {
 				textureCache[programCacheKey] = [];
 			}
-
 			var texturesForCleanup = [];
 			var textureCount = 0;
 			for (textureCount=0; textureCount<paramNames.length; textureCount++) {
@@ -4709,7 +4705,7 @@ var functionBuilder = (function() {
 				if (opt.dimensions.length == 1) {
 					return result;
 				} else if (opt.dimensions.length == 2) {
-                    return splitArray(result, opt.dimensions[0]);
+					return splitArray(result, opt.dimensions[0]);
 				} else if (opt.dimensions.length == 3) {
 					var cube = splitArray(result, opt.dimensions[0] * opt.dimensions[1]);
 					return cube.map(function(x) {
