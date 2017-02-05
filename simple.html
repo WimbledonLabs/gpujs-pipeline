@@ -3,7 +3,21 @@
 
 <style>
 body {
+    padding: 0px;
+    margin: 6em;
+}
 
+#fps {
+    font-size: 2em;
+}
+
+#plan {
+    width: 1920px;
+    height: 50%;
+
+    overflow: hidden;
+    padding: 0px;
+    margin: 0px;
 }
 
 #debug {
@@ -18,15 +32,20 @@ body {
 }
 </style>
     </head>
-    <body onload="test()">
-        <h1 id="fps">0</h1>
+    <body>
+        <span id="fps">0</span>
+         <span id="mouse_coords">(0, 0)</span>
+         <span id="grid_coords">(0, 0)</span>
+         <div id="grid_fn"></div>
+        <canvas id="plan"></canvas>
         <!-- <div id="debug"></div> -->
 
 <!--    <canvas id="scaled" width="512" height="512">
     </canvas>
 -->
 
-    <script src="orig/js/gpu.js?nocache"></script>
+<script src="orig/js/gpu.js?nocache"></script>
     <script src="parallel.js?nocache"></script>
+    <script src="ui.js?nocache"></script>
     </body>
 </html>
