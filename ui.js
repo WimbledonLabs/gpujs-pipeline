@@ -5,8 +5,11 @@ var ctx = context;
 var mouse_offset_x = 0;
 var mouse_offset_y = 0;
 
+var isMouseDown = false;
+
 function mousedown(event) {
     isMouseDown = true;
+    //scale_x += 0.2;
 }
 
 function mouseup(event) {
@@ -18,10 +21,21 @@ function print_test(event) {
 }
 
 function pan_test(event) {
-    console.log(event.movementX);
     if (isMouseDown) {
-        pan_x += event.movementX;
-        pan_y += event.movementY;
+        pan_x += event.movementX / scale_x;
+        pan_y += event.movementY / scale_y;
+    }
+    redraw();
+}
+
+function scale_up(event) {
+    console.log(event.deltaY);
+    if (event.deltaY < 1) {
+        scale_x *= 1 + Math.abs(event.deltaY / 265.0);
+        scale_y = scale_x;
+    } else {
+        scale_x /= 1 + Math.abs(event.deltaY / 265.0);
+        scale_y = scale_x;
     }
     redraw();
 }
@@ -29,31 +43,47 @@ function pan_test(event) {
 canvas.addEventListener("mousedown", mousedown, false);
 canvas.addEventListener("mouseup", mouseup, false);
 window.addEventListener("mousemove", pan_test, false);
+window.addEventListener("mousewheel", scale_up, false);
 
 var bg_loaded = false;
 
 var pan_x = 0;
-var pan_y = 50;
+var pan_y = 0;
+
+var scale_x = 1.0;
+var scale_y = 1.0;
+
+var canvas_x = 0;
+var canvas_y = 0;
+var canvas_sx = 1;
+var canvas_sy = 1;
 
 function redraw() {
     if (bg_loaded) {
+        ctx.scale(scale_x / canvas_sx, scale_y / canvas_sy);
+        canvas_sx = scale_x;
+        canvas_sy = scale_y;
+
+        ctx.translate(pan_x - canvas_x, pan_y - canvas_y);
+        canvas_x = pan_x;
+        canvas_y = pan_y;
+
         var pattern = context.createPattern(bg_tile, 'repeat');
 
         context.rect(0, 0, canvas.width, canvas.height);
         context.fillStyle = pattern;
         context.fill();
 
+
         context.rect(50, 50, 100, 100);
         context.fillStyle = "#FF0000";
-        context.fillRect(50, 50, 100, 100);
+        context.fillRect(0, 0, 100, 100);
 
-        ctx.save();
-        ctx.translate(pan_x, pan_y);
-        ctx.drawImage(canvas, 0, 0);
-        ctx.restore();
+        //ctx.save();
+        //ctx.translate(pan_x, pan_y);
+        //ctx.drawImage(canvas, 0, 0);
+        //ctx.restore();
     }
-
-    console.log("Redrew canvas");
 }
 
 window.setInterval(function () {
