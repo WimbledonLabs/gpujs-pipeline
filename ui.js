@@ -55,6 +55,44 @@ MouseState.prototype = {
 }
 */
 
+function getArrayDimensions(arr) {
+    // We assume that it's a rectangular array
+    var dim = [];
+    dim.push(arr.length);
+
+    if (arr.length > 0 && Array.isArray(arr[0])) {
+        var inner_dim = getArrayDimensions(arr[0]);
+        dim = dim.concat(inner_dim);
+    }
+
+    return dim;
+}
+
+function getType(obj) {
+    var name = typeof obj;
+
+    // Just return the primitive type
+    if (name != "object" && name != "function") {
+        return name;
+    }
+
+    // Now we need to determine what kind of complex type we have
+    if (obj === null) {
+        return "null";
+    } else if (Array.isArray(obj)) {
+        return "[" + getArrayDimensions(obj) + "]";
+    } else if (name === "function") {
+        // We'll do more with this later
+        return "function";
+    } else if (name === "object") {
+        // Here we have objects which are non-null
+        // Later we'll check for specific types
+        return "object";
+    }
+
+    throw "Could not determine type of " + name;
+}
+
 function Hitbox(x, y, w, h) {
     this.update(x, y, w, h);
 }
@@ -87,6 +125,73 @@ Hitbox.prototype = {
     }
 };
 
+function rotate(p, a) {
+    return [ p[0]*Math.cos(a) - p[1]*Math.sin(a),
+             p[0]*Math.sin(a) + p[1]*Math.cos(a) ];
+}
+
+function translate(p, x, y) {
+    return [p[0] + x,
+            p[1] + y];
+}
+
+function NodePin(node, direction, label, offsetX, offsetY) {
+    this.label = label;
+    this.node = node;
+    this.direction = direction;
+
+    this.x = offsetX;
+    this.y = offsetY;
+}
+
+NodePin.prototype = {
+    getX: function() {
+        return this.node.x + this.x;
+    },
+
+    getY: function() {
+        return this.node.y + this.y;
+    },
+
+    getPos: function() {
+        return [this.getx(), this.getY()];
+    }
+
+}
+
+function Edge(outputPin, inputPin) {
+    this.outputPin = outputPin;
+    this.inputPin =  inputPin;
+}
+
+Edge.prototype = {
+    draw: function (in_ctx) {
+
+        in_ctx.fillStyle = "rgba(0, 0, 0, 0)";
+        in_ctx.beginPath();
+        in_ctx.moveTo(this.outputPin.getX(),
+                      this.outputPin.getY());
+        //in_ctx.lineTo(this.inputPin.x,
+        //              this.inputPin.y);
+        in_ctx.bezierCurveTo(
+                (this.inputPin.getX() + this.outputPin.getX())/2,
+                this.outputPin.getY(),
+
+                (this.inputPin.getX() + this.outputPin.getX())/2,
+                this.inputPin.getY(),
+
+                this.inputPin.getX(), this.inputPin.getY());
+
+        //in_ctx.closePath();
+        in_ctx.fill();
+        in_ctx.stroke();
+
+        //in_ctx.fillRoundRect(this.outputPin.x, this.outputPin.y,
+        //        this.inputPin.x - this.outputPin.x,
+        //        this.inputPin.y - this.outputPin.y, 0);
+    }
+}
+
 function Node(x, y, w, h) {
     this.hitbox = new Hitbox(x, y, w, h);
     this.x = x;
@@ -99,6 +204,12 @@ Node.prototype = {
     draw: function (in_ctx) {
         in_ctx.fillStyle = "#a0a0a0";
         in_ctx.fillRoundRect(this.x, this.y, this.w, this.h, 16);
+        in_ctx.stroke();
+
+        in_ctx.fillStyle = "#333333";
+        in_ctx.fillTri(this.x, this.y + 32, 16, Math.PI / 6);
+        in_ctx.stroke();
+        in_ctx.fillTri(this.x + this.w, this.y + 32, 16, Math.PI / 2);
         in_ctx.stroke();
     },
 
@@ -123,15 +234,20 @@ Node.prototype = {
     },
 };
 
-CanvasRenderingContext2D.prototype.fillTri = function (x, y, s) {
+CanvasRenderingContext2D.prototype.fillTri = function (x, y, s, a) {
+    if (a === undefined) a = Math.PI / 6 * 3;
+
     var h = Math.sqrt(3)/2 * s;
 
-    var v0 = [x - s/2, y + h/3];
-    var v1 = [x + s/2, y + h/3];
-    var v2 = [x      , y - 2*h/3];
+    var v0 = [-s/2,   h/3];
+    var v1 = [+s/2,   h/3];
+    var v2 = [0,   -2*h/3];
+
+    v0 = translate(rotate(v0, a), x, y);
+    v1 = translate(rotate(v1, a), x, y);
+    v2 = translate(rotate(v2, a), x, y);
 
     this.fillPoly([v0, v1, v2]);
-    console.log("Created tri");
 }
 
 CanvasRenderingContext2D.prototype.fillPoly = function (vertices) {
@@ -179,6 +295,10 @@ function mousedown(event) {
 
     var grid_coord = screen_to_grid_coords([event.layerX, event.layerY]);
     for (var i=0; i<renderableObjects.length; i++) {
+        if (!renderableObjects[i].hitbox) {
+            continue;
+        }
+
         if (renderableObjects[i].hitbox.inBounds(grid_coord[0], grid_coord[1])) {
             isObjDragged = true;
             objDragged = renderableObjects[i];
@@ -314,9 +434,6 @@ function redraw() {
     for (var i=0; i<renderableObjects.length; i++) {
         renderableObjects[i].draw(ctx);
     }
-
-    ctx.fillTri(200, 200, 32);
-    ctx.stroke();
 }
 
 window.setInterval(function () {
@@ -338,7 +455,18 @@ window.setInterval(function () {
     }
 }, 500);
 
-renderableObjects = [new Node(0, 0, 128, 256)];
+var tmp1 = new Node(0, 0, 128, 256);
+var tmp2 = new Node(500, 100, 128, 256);
+var tmp3 = new Edge(new NodePin(tmp1, "out", "out", 137, 32),
+                    new NodePin(tmp2, "in",  "A", -9, 32));
+
+// function NodePin(node, direction, label, offsetX, offsetY) {
+
+renderableObjects = [
+    tmp3,
+    tmp1,
+    tmp2,
+];
 
 var bg_tile = new Image();
 
