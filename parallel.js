@@ -26,7 +26,6 @@ function pingpong() {
     generation += 1;
 }
 
-/*
 function test() {
     var sleepFor = 0;
     window.setInterval(pingpong, sleepFor);
@@ -35,9 +34,9 @@ function test() {
 setInterval( function() {
     document.getElementById("fps").innerHTML = generation;
     generation = 0;
-}, 1000);*/
+}, 1000);
 
-var mode = "cpu";
+var mode = "gpu";
 
 // Input dimensions
 var xsize = 512;
@@ -214,7 +213,7 @@ var X = r;
 var Y;
 
 //pingpong();
-show(pong(r));
+//show(pong(r));
 
 //test()
 

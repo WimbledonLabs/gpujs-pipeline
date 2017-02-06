@@ -4131,6 +4131,7 @@ var functionBuilder = (function() {
 
 	function splitArray(array, part) {
 		var tmp = [];
+        //array = Array.from(array);
 		for(var i = 0; i < array.length; i += part) {
 			tmp.push(array.slice(i, i + part));
 		}

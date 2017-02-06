@@ -6,14 +6,192 @@ var mouse_offset_x = 0;
 var mouse_offset_y = 0;
 
 var isMouseDown = false;
+var isObjDragged = false;
+var objDragged = null;
+
+var dragObjOffsetX = 0;
+var dragObjOffsetY = 0;
+
+var renderableObjects = [];
+
+/* We could have made a state machine for the mouse which nicely tucks away
+ * transitioning between states and objects being dragged, etc. but
+ * there's not much need...
+function MouseState() {
+    this.potentialStates = [
+        "none",
+        "drag_bg",
+        "drag_obj"
+    ];
+
+    this.transition("none");
+}
+
+MouseState.prototype = {
+    inValidState: function () {
+        for (var i=0; i<this.potentialStates; i++) {
+            if (this.state === this.potentialStates[i]) {
+                return true;
+            }
+        }
+
+        return false;
+    },
+
+    transition: function (newState) {
+        switch (newState) {
+            case "none":
+                this.state = "none";
+                this.stateObj = null;
+                break;
+            case "drag_bg":
+                if (this.state == "none") {
+
+                }
+            default:
+                console.log("Invalid state " + newState);
+                break;
+    }
+}
+*/
+
+function Hitbox(x, y, w, h) {
+    this.update(x, y, w, h);
+}
+
+Hitbox.prototype = {
+    inBounds: function (x,y) {
+        return x >= this.x          && y >= this.y &&
+               x <= this.x + this.w && y <= this.y + this.h;
+    },
+
+    update: function (x_or_obj, y, w, h) {
+        if (typeof x_or_obj === "number") {
+            this.x = x_or_obj;
+            this.y = y;
+            this.w = w;
+            this.h = h;
+        } else {
+            var d = x_or_obj;
+
+            if (d.x) {
+                this.x = d.x;
+            } if (d.y) {
+                this.y = d.y;
+            } if (d.w) {
+                this.y = d.w;
+            } if (d.h) {
+                this.h = d.h;
+            }
+        }
+    }
+};
+
+function Node(x, y, w, h) {
+    this.hitbox = new Hitbox(x, y, w, h);
+    this.x = x;
+    this.y = y;
+    this.w = w;
+    this.h = h;
+}
+
+Node.prototype = {
+    draw: function (in_ctx) {
+        in_ctx.fillStyle = "#a0a0a0";
+        in_ctx.fillRoundRect(this.x, this.y, this.w, this.h, 16);
+        in_ctx.stroke();
+    },
+
+    update: function (x_or_obj, y) {
+        if (typeof x_or_obj === "number") {
+            this.x = x_or_obj;
+            this.y = y;
+
+            this.hitbox.update({x: x_or_obj,
+                                y: y});
+        } else {
+            var d = x_or_obj;
+
+            if (d.x) {
+                this.x = d.x;
+            } if (d.y) {
+                this.y = d.y;
+            }
+
+            this.hitbox.update(d);
+        }
+    },
+};
+
+CanvasRenderingContext2D.prototype.fillTri = function (x, y, s) {
+    var h = Math.sqrt(3)/2 * s;
+
+    var v0 = [x - s/2, y + h/3];
+    var v1 = [x + s/2, y + h/3];
+    var v2 = [x      , y - 2*h/3];
+
+    this.fillPoly([v0, v1, v2]);
+    console.log("Created tri");
+}
+
+CanvasRenderingContext2D.prototype.fillPoly = function (vertices) {
+    if (vertices.length < 3) {
+        throw "Must have at least 3 vertices";
+    }
+
+    this.moveTo(vertices[0], vertices[1]);
+    this.beginPath();
+    for (var i=0; i< vertices.length; i++) {
+        this.lineTo(vertices[i][0], vertices[i][1]);
+    }
+    this.closePath();
+    this.fill();
+}
+
+CanvasRenderingContext2D.prototype.fillRoundRect = function (x, y, w, h, r) {
+    // Start at top left just below the curve
+    this.moveTo(x, y - r);
+    this.beginPath();
+    this.lineTo(x, y + h - r);
+    this.quadraticCurveTo(x,     y + h, 
+                          x + r, y + h);
+
+    this.lineTo(x + w - r, y + h);
+    this.quadraticCurveTo(x + w, y + h,
+                          x + w, y + h - r);
+
+    this.lineTo(x + w, y + r);
+    this.quadraticCurveTo(x + w,     y,
+                          x + w - r, y);
+
+    this.lineTo(x + r, y);
+    this.quadraticCurveTo(x, y,
+                          x, y + r);
+
+    this.closePath();
+    this.fill();
+
+}
 
 function mousedown(event) {
     isMouseDown = true;
-    //scale_x += 0.2;
+    isObjDragged = false;
+
+    var grid_coord = screen_to_grid_coords([event.layerX, event.layerY]);
+    for (var i=0; i<renderableObjects.length; i++) {
+        if (renderableObjects[i].hitbox.inBounds(grid_coord[0], grid_coord[1])) {
+            isObjDragged = true;
+            objDragged = renderableObjects[i];
+
+            dragObjOffsetX = objDragged.x - grid_coord[0];
+            dragObjOffsetY = objDragged.y - grid_coord[1];
+        }
+    }
 }
 
 function mouseup(event) {
     isMouseDown = false;
+    isObjDragged = false;
 }
 
 function half_stgc(x, px, sx) {
@@ -36,9 +214,20 @@ function pan_test(event) {
     grid_coords_span.innerHTML = "(" + (grid_coords[0]) + ", " + (grid_coords[1]) + ")";
 
     if (isMouseDown) {
-        pan_x += event.movementX;
-        pan_y += event.movementY;
+        if (!isObjDragged) {
+            pan_x += event.movementX;
+            pan_y += event.movementY;
+        } else {
+            g = grid_coords;
+            g[0] += dragObjOffsetX;
+            g[1] += dragObjOffsetY;
+
+            objDragged.update({x: g[0],
+                               y: g[1]});
+
+        }
     }
+
     redraw();
 }
 
@@ -69,7 +258,11 @@ function scale_up(event) {
 
 function add_square(event) {
     console.log("Add square");
-    squares.push(screen_to_grid_coords([event.layerX, event.layerY]));
+
+    var g = screen_to_grid_coords([event.layerX, event.layerY]);
+    squares.push();
+    renderableObjects.push(new Node(g[0], g[1], 128, 256))
+
     event.preventDefault();
     redraw();
 }
@@ -112,16 +305,18 @@ function redraw() {
         var pattern = context.createPattern(bg_tile, 'repeat');
 
         // Print background
-        context.rect(-pan_x, -pan_y, canvas.width / scale_x, canvas.height / scale_y);
+        context.rect(-pan_x/scale_x, -pan_y/scale_y, canvas.width / scale_x, canvas.height / scale_y);
         context.fillStyle = pattern;
         context.fill();
     }
 
     // Print rectangles
-    for (var i=0; i<squares.length; i++) {
-        context.fillStyle = "#FF0000";
-        context.fillRect(squares[i][0], squares[i][1], 64, 64);
+    for (var i=0; i<renderableObjects.length; i++) {
+        renderableObjects[i].draw(ctx);
     }
+
+    ctx.fillTri(200, 200, 32);
+    ctx.stroke();
 }
 
 window.setInterval(function () {
@@ -143,10 +338,9 @@ window.setInterval(function () {
     }
 }, 500);
 
+renderableObjects = [new Node(0, 0, 128, 256)];
 
-<!-- background tiling code from http://www.html5canvastutorials.com/tutorials/html5-canvas-patterns-tutorial/ -->
 var bg_tile = new Image();
-
 
 bg_tile.onload = function () {
     bg_loaded = true;
