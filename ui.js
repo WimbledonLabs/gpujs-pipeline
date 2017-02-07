@@ -1,3 +1,7 @@
+// .===========================================================================
+// | Object Prototype Functions
+// '===========================================================================
+
 Object.prototype.addTraits = function() {
     var base = this;
     var traits = {};
@@ -8,6 +12,11 @@ Object.prototype.addTraits = function() {
 
     base.prototype = Object.assign(traits, base.prototype);
 };
+
+
+// .===========================================================================
+// | Global Variables
+// '===========================================================================
 
 var canvas = document.getElementById("plan");
 var context = canvas.getContext('2d');
@@ -24,6 +33,16 @@ var dragObjOffsetY = 0;
 
 var renderableObjects = [];
 
+var pan_x = 0;
+var pan_y = 0;
+
+var scale_x = 1.0;
+var scale_y = 1.0;
+
+var canvas_x = 0;
+var canvas_y = 0;
+var canvas_sx = 1;
+var canvas_sy = 1;
 
 // .===========================================================================
 // | Mouse State Managers
@@ -188,6 +207,36 @@ function getType(obj) {
     throw "Could not determine type of " + name;
 }
 
+/** Rotate the point p around the origin
+ */
+function rotate(p, a) {
+    return [ p[0]*Math.cos(a) - p[1]*Math.sin(a),
+             p[0]*Math.sin(a) + p[1]*Math.cos(a) ];
+}
+
+/** Element-wise add x and y to p
+ */
+function translate(p, x, y) {
+    return [p[0] + x,
+            p[1] + y];
+}
+
+function half_stgc(x, px, sx) {
+    return (x - px)/sx;
+}
+
+function screen_to_grid_coords(pair) {
+    return [
+        half_stgc(pair[0], pan_x, scale_x),
+        half_stgc(pair[1], pan_y, scale_y),
+    ];
+}
+
+
+// .===========================================================================
+// | Canvas Objects
+// '===========================================================================
+
 function Hitbox(x, y, w, h) {
     this.update(x, y, w, h);
 }
@@ -224,16 +273,6 @@ Hitbox.prototype = {
         }
     }
 };
-
-function rotate(p, a) {
-    return [ p[0]*Math.cos(a) - p[1]*Math.sin(a),
-             p[0]*Math.sin(a) + p[1]*Math.cos(a) ];
-}
-
-function translate(p, x, y) {
-    return [p[0] + x,
-            p[1] + y];
-}
 
 function NodePin(node, direction, label, offsetX, offsetY) {
     this.label = label;
@@ -292,6 +331,8 @@ Edge.prototype = {
     }
 }
 
+/* Was this just copied from somewhere else in the code?
+
 function NodeMouseStateManager(node) {
     this.node = node;
 }
@@ -324,6 +365,7 @@ NodeMouseStateManager.prototype = {
     }
 
 }
+*/
 
 function Node(w, h) {
     this.x = 0;
@@ -357,9 +399,8 @@ Node.prototype = {
         return this.hitbox.inBounds(pos);
     },
 
-    press: function() {
-
-
+    press: function(e) {
+        //return new DragMouseStateManager(this, e);
     },
 
     update: function (x_or_obj, y) {
@@ -386,6 +427,11 @@ Node.prototype = {
 //Node.prototype = Object.assign({}, Renderable, Pressable, Node.prototype);
 
 Node.addTraits(Renderable, Pressable);
+
+
+// .===========================================================================
+// | Canvas Prototype Functions
+// '===========================================================================
 
 CanvasRenderingContext2D.prototype.fillTri = function (x, y, s, a) {
     if (a === undefined) a = Math.PI / 6 * 3;
@@ -442,6 +488,11 @@ CanvasRenderingContext2D.prototype.fillRoundRect = function (x, y, w, h, r) {
 
 }
 
+
+// .===========================================================================
+// | Application Mouse Events
+// '===========================================================================
+
 function mousedown(event) {
     if (mouseStateManager && mouseStateManager != defaultMouseStateManager) {
         if (mouseStateManager.event(event)) {
@@ -485,17 +536,6 @@ function mouseup(event) {
     isObjDragged = false;
 }
 
-function half_stgc(x, px, sx) {
-    return (x - px)/sx;
-}
-
-function screen_to_grid_coords(pair) {
-    return [
-        half_stgc(pair[0], pan_x, scale_x),
-        half_stgc(pair[1], pan_y, scale_y),
-    ];
-}
-
 function mousemove(event) {
     if (mouseStateManager && mouseStateManager != defaultMouseStateManager) {
         if (mouseStateManager.event(event)) {
@@ -527,6 +567,11 @@ function mousemove(event) {
     redraw();
 }
 
+
+// .===========================================================================
+// | Canvas Transformations / Drawing
+// '===========================================================================
+
 function scale_up(event) {
     // Basically we need to change pan as well so that screen_to_grid_coords
     // Gives the same value before and after the scale
@@ -551,37 +596,6 @@ function scale_up(event) {
     event.preventDefault();
     return false;
 }
-
-function add_square(event) {
-
-    var g = screen_to_grid_coords([event.layerX, event.layerY]);
-    squares.push();
-    renderableObjects.push( (new Node(128, 256)).setPos(g) )
-
-    event.preventDefault();
-    redraw();
-}
-
-canvas.addEventListener("mousedown", mousedown, false);
-window.addEventListener("mouseup", mouseup, false);
-window.addEventListener("mousemove", mousemove, false);
-canvas.addEventListener("mousewheel", scale_up, false);
-canvas.addEventListener("contextmenu", add_square, false);
-
-var bg_loaded = false;
-
-var pan_x = 0;
-var pan_y = 0;
-
-var scale_x = 1.0;
-var scale_y = 1.0;
-
-var canvas_x = 0;
-var canvas_y = 0;
-var canvas_sx = 1;
-var canvas_sy = 1;
-
-var squares = [[0,0]];
 
 function redraw() {
     /*
@@ -610,6 +624,47 @@ function redraw() {
         renderableObjects[i].draw(context);
     }
 }
+
+
+// .==========================================================================.
+// |==========================================================================|
+// |==========================================================================|
+// | Application Code                                                         |
+// '=========================================================================='
+
+function add_square(event) {
+    var g = screen_to_grid_coords([event.layerX, event.layerY]);
+    renderableObjects.push( (new Node(128, 256)).setPos(g) )
+
+    event.preventDefault();
+    redraw();
+}
+
+// .===========================================================================
+// | Application Variables
+// '===========================================================================
+
+var bg_loaded = false;
+
+
+// .===========================================================================
+// | Initialization
+// '===========================================================================
+
+var bg_tile = new Image();
+
+bg_tile.onload = function () {
+    bg_loaded = true;
+    redraw();
+};
+
+bg_tile.src = "grid_bg.png";
+
+canvas.addEventListener("mousedown", mousedown, false);
+window.addEventListener("mouseup", mouseup, false);
+window.addEventListener("mousemove", mousemove, false);
+canvas.addEventListener("mousewheel", scale_up, false);
+canvas.addEventListener("contextmenu", add_square, false);
 
 window.setInterval(function () {
     var style = window.getComputedStyle(canvas);
@@ -648,11 +703,3 @@ renderableObjects = [
     tmp2,
 ];
 
-var bg_tile = new Image();
-
-bg_tile.onload = function () {
-    bg_loaded = true;
-    redraw();
-};
-
-bg_tile.src = "grid_bg.png";
