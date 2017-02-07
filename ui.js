@@ -1,6 +1,16 @@
+Object.prototype.addTraits = function() {
+    var base = this;
+    var traits = {};
+
+    for(var i=0; i<arguments.length; i++) {
+        traits = Object.assign(traits, arguments[i]);
+    }
+
+    base.prototype = Object.assign(traits, base.prototype);
+};
+
 var canvas = document.getElementById("plan");
 var context = canvas.getContext('2d');
-var ctx = context;
 
 var mouse_offset_x = 0;
 var mouse_offset_y = 0;
@@ -14,46 +24,131 @@ var dragObjOffsetY = 0;
 
 var renderableObjects = [];
 
-/* We could have made a state machine for the mouse which nicely tucks away
- * transitioning between states and objects being dragged, etc. but
- * there's not much need...
-function MouseState() {
-    this.potentialStates = [
-        "none",
-        "drag_bg",
-        "drag_obj"
-    ];
 
-    this.transition("none");
-}
+// .===========================================================================
+// | Mouse State Managers
+// '===========================================================================
 
-MouseState.prototype = {
-    inValidState: function () {
-        for (var i=0; i<this.potentialStates; i++) {
-            if (this.state === this.potentialStates[i]) {
-                return true;
-            }
-        }
+var mouseStateManager = null;
 
-        return false;
-    },
-
-    transition: function (newState) {
-        switch (newState) {
-            case "none":
-                this.state = "none";
-                this.stateObj = null;
-                break;
-            case "drag_bg":
-                if (this.state == "none") {
-
-                }
+var MouseStateManager = {
+    event: function(e) {
+        switch (e.eventType) {
+            // Maybe all these methods should be called onMouse*(e) ?
+            case "mousedown":
+                return this.mousedown(e);
+            case "mouseup":
+                return this.mouseup(e);
+            case "mouseover":
+                return this.mouseover(e);
             default:
-                console.log("Invalid state " + newState);
-                break;
+                console.log("Unknown mouse event " + e.eventType);
+                return;
+        }
+    },
+    mousedown: function(e) {console.log("mousedown not implemented")},
+    mouseup:   function(e) {console.log("mouseup not implemented")},
+    mousemove: function(e) {console.log("mousemove not implemented")},
+
+    useDefaultMouseState: function(e) {
+        mouseStateManager = defaultMouseStateManager;
     }
 }
-*/
+
+function DragMouseStateManager(obj, event) {
+    var g = screen_to_grid_coords([event.layerX, event.layerY]);
+
+    this.draggedObj = obj;
+    this.offsetX = obj.x - g[0];
+    this.offsetY = obj.y - g[1];
+}
+
+DragMouseStateManager.prototype = {
+    mousedown: function(e) {/* Mouse is down for this manager's entire lifetime */},
+    mouseup: function(e) {
+        this.useDefaultMouseState();
+    },
+    mousemove: function(e) {
+        var g = screen_to_grid_coords([e.layerX, e.layerY]);
+
+        g[0] += this.offsetX;
+        g[1] += this.offsetY;
+
+        this.draggedObj.update({x: g[0],
+                                y: g[1]});
+
+        redraw();
+    }
+}
+
+DragMouseStateManager.addTraits(MouseStateManager);
+
+function DefaultMouseStateManager() {
+    this.isMouseDown = true;
+}
+
+DefaultMouseStateManager.prototype = {
+    mousedown: function(e) {
+        var grid_coord = screen_to_grid_coords([e.layerX, e.layerY]);
+        this.isMouseDown = true;
+
+        // Try to find an object to take over the mouse interaction
+        for (var i=0; i<renderableObjects.length; i++) {
+            if (renderableObjects[i].isOver(grid_coord)) {
+                mouseStateManager = renderableObjects[i].press();
+                return;
+            }
+        }
+    },
+    mousemove: function(e) {
+        // Adjust global canvas pan
+        if (this.isMouseDown) {
+            pan_x += event.movementX;
+            pan_y += event.movementY;
+        }
+    },
+    mouseup: function(e) {
+        this.isMouseDown = false;
+    }
+};
+
+var defaultMouseStateManager = new DefaultMouseStateManager();
+mouseStateManager = defaultMouseStateManager;
+
+
+// .===========================================================================
+// | Traits
+// '===========================================================================
+
+var Renderable = {
+    get isRenderable() {
+        return true;
+    },
+    draw: function(ctx) {
+        // Should override in subclass
+        ctx.fillStyle = "rgba(1.0, 0, 1.0, 1.0)";
+        ctx.fillTri(0, 0, 16, 1.0);
+    }
+};
+
+var Pressable = {
+    get isPressable() {
+        return true;
+    },
+    isOver: function(pos) {
+        // Should override in subclass
+        return false;
+    },
+    press: function() {
+        // Should override in subclass
+        return defaultMouseStateManager;
+    }
+};
+
+
+// .===========================================================================
+// | Helper Functions
+// '===========================================================================
 
 function getArrayDimensions(arr) {
     // We assume that it's a rectangular array
@@ -99,6 +194,11 @@ function Hitbox(x, y, w, h) {
 
 Hitbox.prototype = {
     inBounds: function (x,y) {
+        if (y === undefined) {
+            y = x[1];
+            x = x[0];
+        }
+
         return x >= this.x          && y >= this.y &&
                x <= this.x + this.w && y <= this.y + this.h;
     },
@@ -192,12 +292,46 @@ Edge.prototype = {
     }
 }
 
-function Node(x, y, w, h) {
-    this.hitbox = new Hitbox(x, y, w, h);
-    this.x = x;
-    this.y = y;
+function NodeMouseStateManager(node) {
+    this.node = node;
+}
+
+NodeMouseStateManager.prototype = {
+    event: function(e) {
+        this.isMouseDown = true;
+        this.isObjDragged = false;
+
+        var grid_coord = screen_to_grid_coords([e.layerX, e.layerY]);
+        for (var i=0; i<renderableObjects.length; i++) {
+            if (renderableObjects[i].isOver(grid_coord)) {
+                mouseStateManager = renderableObjects[i].press();
+                return;
+            }
+
+
+            if (!renderableObjects[i].hitbox) {
+                continue;
+            }
+
+            if (renderableObjects[i].hitbox.inBounds(grid_coord[0], grid_coord[1])) {
+                isObjDragged = true;
+                objDragged = renderableObjects[i];
+
+                dragObjOffsetX = objDragged.x - grid_coord[0];
+                dragObjOffsetY = objDragged.y - grid_coord[1];
+            }
+        }
+    }
+
+}
+
+function Node(w, h) {
+    this.x = 0;
+    this.y = 0;
     this.w = w;
     this.h = h;
+
+    this.hitbox = new Hitbox(this.x, this.y, this.w, this.h);
 }
 
 Node.prototype = {
@@ -211,6 +345,21 @@ Node.prototype = {
         in_ctx.stroke();
         in_ctx.fillTri(this.x + this.w, this.y + 32, 16, Math.PI / 2);
         in_ctx.stroke();
+    },
+
+    setPos: function (pos) {
+        this.update({x: pos[0],
+                     y: pos[1]});
+        return this;
+    },
+
+    isOver: function(pos) {
+        return this.hitbox.inBounds(pos);
+    },
+
+    press: function() {
+
+
     },
 
     update: function (x_or_obj, y) {
@@ -233,6 +382,10 @@ Node.prototype = {
         }
     },
 };
+
+//Node.prototype = Object.assign({}, Renderable, Pressable, Node.prototype);
+
+Node.addTraits(Renderable, Pressable);
 
 CanvasRenderingContext2D.prototype.fillTri = function (x, y, s, a) {
     if (a === undefined) a = Math.PI / 6 * 3;
@@ -290,11 +443,23 @@ CanvasRenderingContext2D.prototype.fillRoundRect = function (x, y, w, h, r) {
 }
 
 function mousedown(event) {
+    if (mouseStateManager && mouseStateManager != defaultMouseStateManager) {
+        if (mouseStateManager.event(event)) {
+            return;
+        }
+    }
+
     isMouseDown = true;
     isObjDragged = false;
 
     var grid_coord = screen_to_grid_coords([event.layerX, event.layerY]);
     for (var i=0; i<renderableObjects.length; i++) {
+        if (renderableObjects[i].isOver(grid_coord)) {
+            mouseStateManager = renderableObjects[i].press();
+            //return;
+        }
+
+
         if (!renderableObjects[i].hitbox) {
             continue;
         }
@@ -310,6 +475,12 @@ function mousedown(event) {
 }
 
 function mouseup(event) {
+    if (mouseStateManager && mouseStateManager != defaultMouseStateManager) {
+        if (mouseStateManager.event(event)) {
+            return;
+        }
+    }
+
     isMouseDown = false;
     isObjDragged = false;
 }
@@ -322,10 +493,16 @@ function screen_to_grid_coords(pair) {
     return [
         half_stgc(pair[0], pan_x, scale_x),
         half_stgc(pair[1], pan_y, scale_y),
-    ]
+    ];
 }
 
-function pan_test(event) {
+function mousemove(event) {
+    if (mouseStateManager && mouseStateManager != defaultMouseStateManager) {
+        if (mouseStateManager.event(event)) {
+            return;
+        }
+    }
+
     var mouse_coords_span = document.getElementById("mouse_coords");
     var grid_coords_span = document.getElementById("grid_coords");
     mouse_coords_span.innerHTML = "(" + (event.layerX) + ", " + (event.layerY) + ")";
@@ -344,7 +521,6 @@ function pan_test(event) {
 
             objDragged.update({x: g[0],
                                y: g[1]});
-
         }
     }
 
@@ -377,11 +553,10 @@ function scale_up(event) {
 }
 
 function add_square(event) {
-    console.log("Add square");
 
     var g = screen_to_grid_coords([event.layerX, event.layerY]);
     squares.push();
-    renderableObjects.push(new Node(g[0], g[1], 128, 256))
+    renderableObjects.push( (new Node(128, 256)).setPos(g) )
 
     event.preventDefault();
     redraw();
@@ -389,7 +564,7 @@ function add_square(event) {
 
 canvas.addEventListener("mousedown", mousedown, false);
 window.addEventListener("mouseup", mouseup, false);
-window.addEventListener("mousemove", pan_test, false);
+window.addEventListener("mousemove", mousemove, false);
 canvas.addEventListener("mousewheel", scale_up, false);
 canvas.addEventListener("contextmenu", add_square, false);
 
@@ -419,7 +594,7 @@ function redraw() {
     canvas_sx = scale_x;
     canvas_sy = scale_y;
     */
-    ctx.setTransform(scale_x, 0, 0, scale_y, pan_x, pan_y);
+    context.setTransform(scale_x, 0, 0, scale_y, pan_x, pan_y);
 
     if (bg_loaded) {
         var pattern = context.createPattern(bg_tile, 'repeat');
@@ -432,7 +607,7 @@ function redraw() {
 
     // Print rectangles
     for (var i=0; i<renderableObjects.length; i++) {
-        renderableObjects[i].draw(ctx);
+        renderableObjects[i].draw(context);
     }
 }
 
@@ -455,15 +630,20 @@ window.setInterval(function () {
     }
 }, 500);
 
-var tmp1 = new Node(0, 0, 128, 256);
-var tmp2 = new Node(500, 100, 128, 256);
+var tmp1 = new Node(128, 256);
+var tmp2 = new Node(128, 256);
+
+tmp1.setPos([0, 0]);
+tmp2.setPos([500, 100]);
+//var tmp1 = (new Node(128, 256)).setPos([0, 0]);
+//var tmp2 = (new Node(128, 256)).setPos([500, 100]);
 var tmp3 = new Edge(new NodePin(tmp1, "out", "out", 137, 32),
                     new NodePin(tmp2, "in",  "A", -9, 32));
 
 // function NodePin(node, direction, label, offsetX, offsetY) {
 
 renderableObjects = [
-    tmp3,
+//    tmp3,
     tmp1,
     tmp2,
 ];
