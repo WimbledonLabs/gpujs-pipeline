@@ -2,15 +2,40 @@
 // | Object Prototype Functions
 // '===========================================================================
 
+Object.prototype.fullAssign = function(target, ...sources) {
+// Taken from:
+// https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Object/assign
+    sources.forEach(source => {
+        let descriptors = Object.keys(source).reduce((descriptors, key) => {
+            descriptors[key] = Object.getOwnPropertyDescriptor(source, key);
+            return descriptors;
+        }, {});
+
+        // by default, Object.assign copies enumerable Symbols too
+        Object.getOwnPropertySymbols(source).forEach(sym => {
+            let descriptor = Object.getOwnPropertyDescriptor(source, sym);
+            if (descriptor.enumerable) {
+                descriptors[sym] = descriptor;
+            }
+        });
+        Object.defineProperties(target, descriptors);
+    });
+    return target;
+};
+
 Object.prototype.addTraits = function() {
     var base = this;
     var traits = {};
 
     for(var i=0; i<arguments.length; i++) {
-        traits = Object.assign(traits, arguments[i]);
+        traits = Object.fullAssign(traits, arguments[i]);
     }
 
-    base.prototype = Object.assign(traits, base.prototype);
+    base.prototype = Object.fullAssign(traits, base.prototype);
+};
+
+Array.prototype.remove = function(obj) {
+    this.splice(this.indexOf(obj), 1);
 };
 
 
@@ -71,9 +96,13 @@ function DragMouseStateManager(obj, event) {
 DragMouseStateManager.prototype = {
     mousedown: function(e) {/* Mouse is down for this manager's entire lifetime */},
     mouseup: function(e) {
-        this.useDefaultMouseState();
+        if (e.button == 0) {
+            this.useDefaultMouseState();
+        }
     },
     mousemove: function(e) {
+        // TODO should use e.movementX and movementY so have better behaviour
+        // when going off-canvas
         var g = screen_to_grid_coords([e.layerX, e.layerY]);
 
         g[0] += this.offsetX;
@@ -88,17 +117,74 @@ DragMouseStateManager.prototype = {
 
 DragMouseStateManager.addTraits(MouseStateManager);
 
+function EdgePointStateManager(point, event) {
+    console.log("Yay, we're using the edgepointstatemanager");
+    this.draggedObj = point;
+    this.offsetX = 0;
+    this.offsetY = 0;
+
+    this.firstPress = true;
+}
+
+EdgePointStateManager.addTraits(DragMouseStateManager.prototype, {
+    mouseup: function(e) {
+        var current = this.draggedObj.inputPin || this.draggedObj.outputPin;
+        var dir = (this.draggedObj.inputPin) ? "out" : "in";
+
+        console.log("Looking for pins going " + dir);
+
+        var g = screen_to_grid_coords([e.layerX, e.layerY]);
+
+        for (var i=0; i<renderableObjects.length; i++) {
+            var obj = renderableObjects[i];
+            if (obj instanceof Node) {
+                for (var j=0; j<obj.pins[dir].length; j++) {
+                    var pin = obj.pins[dir][j];
+                    if (pin !== current && pin.inBounds(g[0], g[1])) {
+                        // Set the dir
+                        if (this.draggedObj.inputPin) {
+                            this.draggedObj.outputPin = pin;
+                        } else {
+                            this.draggedObj.inputPin = pin;
+                        }
+                        redraw();
+
+                        console.log("Finished Edge");
+                        this.useDefaultMouseState();
+                        return;
+                    }
+                }
+            }
+        }
+
+        // This allows for click-hold-drag-release or for click-release move click-release
+        if (!this.firstPress) {
+            console.log("Try better to click on an actual pin...");
+            renderableObjects.remove(this.draggedObj);
+            redraw();
+            this.useDefaultMouseState();
+        }
+        this.firstPress = false;
+    },
+});
+
 function DefaultMouseStateManager() {
     this.isMouseDown = false;
 }
 
 DefaultMouseStateManager.prototype = {
     mousedown: function(e) {
+        if (e.button != 0) {
+            // Ignore non-left clicks
+            return;
+        }
+
         var grid_coord = screen_to_grid_coords([e.layerX, e.layerY]);
 
         // Try to find an object to take over the mouse interaction
         for (var i=0; i<renderableObjects.length; i++) {
-            if (renderableObjects[i].isOver(grid_coord)) {
+            var obj = renderableObjects[i];
+            if (obj.isPressable && obj.isOver(grid_coord)) {
                 mouseStateManager = renderableObjects[i].press(e);
                 return;
             }
@@ -106,6 +192,7 @@ DefaultMouseStateManager.prototype = {
 
         // Using default scene panning behaviour
         this.isMouseDown = true;
+        console.log("Default mousedown");
     },
     mousemove: function(e) {
         // Adjust global canvas pan
@@ -118,6 +205,7 @@ DefaultMouseStateManager.prototype = {
     },
     mouseup: function(e) {
         this.isMouseDown = false;
+        console.log("Default mouseup");
     }
 };
 
@@ -154,6 +242,15 @@ var Pressable = {
         // Should override in subclass
         return defaultMouseStateManager;
     }
+};
+
+var Pinnable = {
+    get isPin() {
+        return true;
+    },
+    get pinDirection() {
+        return "neither";
+    },
 };
 
 
@@ -266,70 +363,198 @@ Hitbox.prototype = {
     }
 };
 
-function NodePin(node, direction, label, offsetX, offsetY) {
+function NodePin(node, dir, label, type, offsetX, offsetY) {
+    this.PIN_SIZE = 16.0;
     this.label = label;
     this.node = node;
-    this.direction = direction;
+    this.dir = dir;
 
-    this.x = offsetX;
-    this.y = offsetY;
+    // 2017/02/07 19:32 SGT
+    // Uhhh... this is the point where I reallized I probably should have used
+    // the MVC pattern
+    this.connectedPins = [];
+
+    this._x = offsetX;
+    this._y = offsetY;
+
+    this.type = type;
 }
 
 NodePin.prototype = {
-    getX: function() {
-        return this.node.x + this.x;
+    get x() {
+        return this.node.x + this._x;
     },
 
-    getY: function() {
-        return this.node.y + this.y;
+    get y() {
+        return this.node.y + this._y;
     },
 
     getPos: function() {
-        return [this.getx(), this.getY()];
-    }
+        return [this.x, this.y];
+    },
 
+    isOver: function(pos) {
+        return this.inBounds(pos[0], pos[1]);
+    },
+
+    press: function(e) {
+        console.log("Adding edge");
+        var g = screen_to_grid_coords([e.layerX, e.layerY]);
+
+        var inPin = (this.dir === "in") ? this : null;
+        var outPin = (this.dir === "in") ? null : this;
+
+        var edge = new Edge(outPin, inPin);
+        edge.x = g[0];
+        edge.y = g[1];
+
+        renderableObjects.push(edge);
+
+        event.preventDefault();
+        redraw();
+        return new EdgePointStateManager(edge, event);
+    },
+
+    inBounds: function(x, y) {
+        // TODO not repeat code...
+        console.log("Pin check bounds");
+        var h = Math.sqrt(3)/2 * this.PIN_SIZE;
+
+        // Sorry, it's easier to create branches than actually use the
+        // angle to find a proper bounding box
+        if (this.dir === "out") {
+            return x >= this.x - h/3   && y >= this.y - this.PIN_SIZE / 2 &&
+                   x <= this.x + 2*h/3 && y <= this.y + this.PIN_SIZE / 2;
+        } else {
+            return x >= this.x - 2*h/3   && y >= this.y - this.PIN_SIZE / 2 &&
+                   x <= this.x + h/3 && y <= this.y + this.PIN_SIZE / 2;
+        }
+    },
+
+    draw: function(ctx) {
+        var angle = (this.dir === "in") ? Math.PI / 6 : Math.PI / 2;
+        ctx.fillStyle = "#333333";
+        ctx.fillTri(this._x + this.node.x, this._y + this.node.y, this.PIN_SIZE, angle);
+        ctx.stroke();
+    }
 }
+
+NodePin.addTraits(Renderable, Pressable);
 
 function Edge(outputPin, inputPin) {
     this.outputPin = outputPin;
-    this.inputPin =  inputPin;
+    this.inputPin = inputPin;
+
+    // This is kind of ugly. Basically we need a way to render the edge
+    // before it has both points to snap to. So here we have a "floating"
+    // vertex :(
+    this.x = 0;
+    this.y = 0;
 }
 
 Edge.prototype = {
     draw: function (in_ctx) {
+        var vf = [this.x, this.y];
+        var vi = vf;
+        var vo = vf;
+
+        if (this.outputPin) {
+            vi = [this.outputPin.x,
+                  this.outputPin.y];
+        }
+
+        if (this.inputPin) {
+            vo = [this.inputPin.x,
+                  this.inputPin.y];
+        }
+
+        if (vi === vf && vo === vf) {
+            // Somehow we don't have either of the vertices for the edge...
+            console.log("Edge has no vertices");
+        }
 
         in_ctx.fillStyle = "rgba(0, 0, 0, 0)";
         in_ctx.beginPath();
-        in_ctx.moveTo(this.outputPin.getX(),
-                      this.outputPin.getY());
-        //in_ctx.lineTo(this.inputPin.x,
-        //              this.inputPin.y);
+        in_ctx.moveTo(vo[0], vo[1]);
+
         in_ctx.bezierCurveTo(
-                (this.inputPin.getX() + this.outputPin.getX())/2,
-                this.outputPin.getY(),
+                (vo[0] + vi[0])/2,
+                vo[1],
 
-                (this.inputPin.getX() + this.outputPin.getX())/2,
-                this.inputPin.getY(),
+                (vo[0] + vi[0])/2,
+                vi[1],
 
-                this.inputPin.getX(), this.inputPin.getY());
+                vi[0], vi[1]);
 
-        //in_ctx.closePath();
         in_ctx.fill();
         in_ctx.stroke();
+    },
 
-        //in_ctx.fillRoundRect(this.outputPin.x, this.outputPin.y,
-        //        this.inputPin.x - this.outputPin.x,
-        //        this.inputPin.y - this.outputPin.y, 0);
+    update: function(x_or_obj, y) {
+        if (typeof x_or_obj === "number") {
+            this.x = x_or_obj;
+            this.y = y;
+        } else {
+            var d = x_or_obj;
+
+            if (d.x) {
+                this.x = d.x;
+            } if (d.y) {
+                this.y = d.y;
+            }
+        }
     }
 }
 
-function Node(w, h) {
+Edge.addTraits(Renderable);
+
+
+
+// 2017/02/07 19:56 SGT
+// How do I make the pipeline generic over array sizes :(
+
+/*
+
+pinDesc is a list of POJO's like so:
+
+[
+    {dir:"in", label:"A", type:"[x,y,4]"},
+    {dir:"in", label:"B", type:"[x,y,4]"},
+    {dir:"out", label:"C", type:"[x,y,4]"},
+]
+*/
+
+function Node(w, h, pinDesc) {
     this.x = 0;
     this.y = 0;
     this.w = w;
     this.h = h;
 
+//function NodePin(node, dir, label, type, offsetX, offsetY) {
+
     this.hitbox = new Hitbox(this.x, this.y, this.w, this.h);
+
+    this.pins = {};
+    this.pins["out"] = [];
+    this.pins["in"] = [];
+
+    var offsetX = {}
+    offsetX["in"] = -Math.sqrt(3) * 8 / 3;
+    offsetX["out"] = 128 + Math.sqrt(3) * 8 / 3;
+
+    var offsetY = {}
+    offsetY["in"] = 32;
+    offsetY["out"] = 32;
+
+    var thisNode = this;
+
+    pinDesc.forEach(function(desc) {
+        var pin = new NodePin(thisNode, desc.dir, desc.label, desc.type,
+                              offsetX[desc.dir], offsetY[desc.dir]);
+        offsetY[desc.dir] += 32;
+        thisNode.pins[desc.dir].push(pin);
+        renderableObjects.push(pin);
+    });
 }
 
 Node.prototype = {
@@ -338,11 +563,11 @@ Node.prototype = {
         in_ctx.fillRoundRect(this.x, this.y, this.w, this.h, 16);
         in_ctx.stroke();
 
-        in_ctx.fillStyle = "#333333";
-        in_ctx.fillTri(this.x, this.y + 32, 16, Math.PI / 6);
-        in_ctx.stroke();
-        in_ctx.fillTri(this.x + this.w, this.y + 32, 16, Math.PI / 2);
-        in_ctx.stroke();
+        //this.pins.forEach(function(dir) { this.pins[dir].forEach(function(pin) {pin.draw()}) } );
+        // ^How about the following instead?
+
+        // this.pins["in"].forEach(function(pin) {pin.draw(in_ctx)});
+        // this.pins["out"].forEach(function(pin) {pin.draw(in_ctx)});
     },
 
     setPos: function (pos) {
@@ -498,6 +723,10 @@ function redraw() {
     for (var i=0; i<renderableObjects.length; i++) {
         renderableObjects[i].draw(context);
     }
+
+    // *cough* hack *cough* otherwise the last object being rendered will
+    // have a transparent fill in some cases... this is a nigh-invisible tri
+    context.fillTri(0,0,0.01,0);
 }
 
 
@@ -509,8 +738,24 @@ function redraw() {
 
 function add_square(event) {
     var g = screen_to_grid_coords([event.layerX, event.layerY]);
-    renderableObjects.push( (new Node(128, 256)).setPos(g) )
 
+    renderableObjects.push( (new Node(128, 256, node2Pins)).setPos(g) )
+
+    event.preventDefault();
+    redraw();
+}
+
+function add_edge(event) {
+    console.log("Adding edge");
+    var g = screen_to_grid_coords([event.layerX, event.layerY]);
+
+    var edge = new Edge(new NodePin(tmp1, "out", "out", "", 128 + Math.sqrt(3)/2 * 16, 32), null);
+    edge.x = g[0];
+    edge.y = g[1];
+
+    renderableObjects.push(edge);
+
+    mouseStateManager = new EdgePointStateManager(edge, event);
     event.preventDefault();
     redraw();
 }
@@ -557,21 +802,35 @@ window.setInterval(function () {
     }
 }, 500);
 
-var tmp1 = new Node(128, 256);
-var tmp2 = new Node(128, 256);
+//    {dir:"in", label:"A", type:"[x,y,4]"},
+
+var node1Pins = [
+    {dir: "out", label:"src", type:"[x,y,4]"}
+];
+
+var node2Pins = [
+    {dir: "in",  label:"A", type:"[x,y,4]"},
+    {dir: "in",  label:"B", type:"[x,y,4]"},
+    {dir: "out", label:"C", type:"[x,y,4]"}
+];
+
+var tmp1 = new Node(128, 256, node1Pins);
+var tmp2 = new Node(128, 256, node2Pins);
 
 tmp1.setPos([0, 0]);
 tmp2.setPos([500, 100]);
 //var tmp1 = (new Node(128, 256)).setPos([0, 0]);
 //var tmp2 = (new Node(128, 256)).setPos([500, 100]);
-var tmp3 = new Edge(new NodePin(tmp1, "out", "out", 137, 32),
-                    new NodePin(tmp2, "in",  "A", -9, 32));
 
-// function NodePin(node, direction, label, offsetX, offsetY) {
+//var tmp3 = new Edge(new NodePin(tmp1, "out", "out", "", 128 + Math.sqrt(3)/2 * 16, 32),
+//                    new NodePin(tmp2, "in",  "A", "", -Math.sqrt(3)/2*16, 32));
 
-renderableObjects = [
-//    tmp3,
-    tmp1,
-    tmp2,
-];
+var tmp3 = new Edge(tmp1.pins["out"][0],
+                    tmp2.pins["in"][1]);
+
+// function NodePin(node, dir, label, offsetX, offsetY) {
+
+renderableObjects.push(tmp1);
+renderableObjects.push(tmp2);
+renderableObjects.push(tmp3);
 
