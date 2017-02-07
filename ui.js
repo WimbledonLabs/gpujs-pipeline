@@ -21,16 +21,6 @@ Object.prototype.addTraits = function() {
 var canvas = document.getElementById("plan");
 var context = canvas.getContext('2d');
 
-var mouse_offset_x = 0;
-var mouse_offset_y = 0;
-
-var isMouseDown = false;
-var isObjDragged = false;
-var objDragged = null;
-
-var dragObjOffsetX = 0;
-var dragObjOffsetY = 0;
-
 var renderableObjects = [];
 
 var pan_x = 0;
@@ -38,11 +28,6 @@ var pan_y = 0;
 
 var scale_x = 1.0;
 var scale_y = 1.0;
-
-var canvas_x = 0;
-var canvas_y = 0;
-var canvas_sx = 1;
-var canvas_sy = 1;
 
 // .===========================================================================
 // | Mouse State Managers
@@ -338,42 +323,6 @@ Edge.prototype = {
     }
 }
 
-/* Was this just copied from somewhere else in the code?
-
-function NodeMouseStateManager(node) {
-    this.node = node;
-}
-
-NodeMouseStateManager.prototype = {
-    event: function(e) {
-        this.isMouseDown = true;
-        this.isObjDragged = false;
-
-        var grid_coord = screen_to_grid_coords([e.layerX, e.layerY]);
-        for (var i=0; i<renderableObjects.length; i++) {
-            if (renderableObjects[i].isOver(grid_coord)) {
-                mouseStateManager = renderableObjects[i].press();
-                return;
-            }
-
-
-            if (!renderableObjects[i].hitbox) {
-                continue;
-            }
-
-            if (renderableObjects[i].hitbox.inBounds(grid_coord[0], grid_coord[1])) {
-                isObjDragged = true;
-                objDragged = renderableObjects[i];
-
-                dragObjOffsetX = objDragged.x - grid_coord[0];
-                dragObjOffsetY = objDragged.y - grid_coord[1];
-            }
-        }
-    }
-
-}
-*/
-
 function Node(w, h) {
     this.x = 0;
     this.y = 0;
@@ -431,8 +380,6 @@ Node.prototype = {
         }
     },
 };
-
-//Node.prototype = Object.assign({}, Renderable, Pressable, Node.prototype);
 
 Node.addTraits(Renderable, Pressable);
 
@@ -606,10 +553,6 @@ window.setInterval(function () {
         console.log("Needs redraw");
         canvas.width = calcWidth;
         canvas.height = calcHeight;
-        canvas_x = 0;
-        canvas_y = 0;
-        canvas_sx = 1;
-        canvas_sy = 1;
         redraw();
     }
 }, 500);
