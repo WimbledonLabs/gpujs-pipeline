@@ -505,85 +505,6 @@ function delegateToMouseStateManager(event) {
     mouseStateManager.event(event);
 }
 
-function mousedown(event) {
-    if (mouseStateManager && mouseStateManager != defaultMouseStateManager) {
-        if (mouseStateManager.event(event)) {
-            return;
-        }
-    }
-
-    isMouseDown = true;
-    isObjDragged = false;
-
-    var grid_coord = screen_to_grid_coords([event.layerX, event.layerY]);
-    for (var i=0; i<renderableObjects.length; i++) {
-        if (renderableObjects[i].isOver(grid_coord)) {
-            mouseStateManager = renderableObjects[i].press(event);
-            //return;
-        }
-
-
-        if (!renderableObjects[i].hitbox) {
-            continue;
-        }
-
-        if (renderableObjects[i].hitbox.inBounds(grid_coord[0], grid_coord[1])) {
-            isObjDragged = true;
-            objDragged = renderableObjects[i];
-
-            dragObjOffsetX = objDragged.x - grid_coord[0];
-            dragObjOffsetY = objDragged.y - grid_coord[1];
-        }
-    }
-}
-
-function mouseup(event) {
-    if (mouseStateManager && mouseStateManager != defaultMouseStateManager) {
-        if (mouseStateManager.event(event)) {
-            return;
-        }
-    }
-
-    isMouseDown = false;
-    isObjDragged = false;
-}
-
-function mousemove(event) {
-    if (mouseStateManager && mouseStateManager != defaultMouseStateManager) {
-        if (mouseStateManager.event(event)) {
-            return;
-        }
-    }
-
-    var mouse_coords_span = document.getElementById("mouse_coords");
-    var grid_coords_span = document.getElementById("grid_coords");
-    mouse_coords_span.innerHTML = "(" + (event.layerX) + ", " + (event.layerY) + ")";
-
-    var grid_coords = screen_to_grid_coords([event.layerX, event.layerY]);
-    grid_coords_span.innerHTML = "(" + (grid_coords[0]) + ", " + (grid_coords[1]) + ")";
-
-    if (isMouseDown) {
-        if (!isObjDragged) {
-            pan_x += event.movementX;
-            pan_y += event.movementY;
-        } else {
-            g = grid_coords;
-            g[0] += dragObjOffsetX;
-            g[1] += dragObjOffsetY;
-
-            objDragged.update({x: g[0],
-                               y: g[1]});
-        }
-    }
-
-    redraw();
-}
-
-
-// .===========================================================================
-// | Canvas Transformations / Drawing
-// '===========================================================================
-
 function scale_up(event) {
     // Basically we need to change pan as well so that screen_to_grid_coords
     // Gives the same value before and after the scale
@@ -608,6 +529,11 @@ function scale_up(event) {
     event.preventDefault();
     return false;
 }
+
+
+// .===========================================================================
+// | Canvas Drawing
+// '===========================================================================
 
 function redraw() {
     // Adjust the canvas window in the scene
@@ -647,7 +573,6 @@ function add_square(event) {
 // '===========================================================================
 
 var bg_loaded = false;
-var usingStateManagers = true;
 
 
 // .===========================================================================
@@ -663,16 +588,9 @@ bg_tile.onload = function () {
 
 bg_tile.src = "grid_bg.png";
 
-//delegateToMouseStateManager
-if (usingStateManagers) {
-    canvas.addEventListener("mousedown", delegateToMouseStateManager, false);
-    window.addEventListener("mouseup", delegateToMouseStateManager, false);
-    window.addEventListener("mousemove", delegateToMouseStateManager, false);
-} else {
-    canvas.addEventListener("mousedown", mousedown, false);
-    window.addEventListener("mouseup", mouseup, false);
-    window.addEventListener("mousemove", mousemove, false);
-}
+canvas.addEventListener("mousedown", delegateToMouseStateManager, false);
+window.addEventListener("mouseup", delegateToMouseStateManager, false);
+window.addEventListener("mousemove", delegateToMouseStateManager, false);
 
 canvas.addEventListener("mousewheel", scale_up, false);
 canvas.addEventListener("contextmenu", add_square, false);
