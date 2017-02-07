@@ -52,16 +52,17 @@ var mouseStateManager = null;
 
 var MouseStateManager = {
     event: function(e) {
-        switch (e.eventType) {
+        switch (e.type) {
             // Maybe all these methods should be called onMouse*(e) ?
             case "mousedown":
                 return this.mousedown(e);
             case "mouseup":
                 return this.mouseup(e);
-            case "mouseover":
-                return this.mouseover(e);
+            case "mousemove":
+                return this.mousemove(e);
             default:
-                console.log("Unknown mouse event " + e.eventType);
+                console.log("Unknown mouse event " + e.type);
+                console.log(e);
                 return;
         }
     },
@@ -103,33 +104,39 @@ DragMouseStateManager.prototype = {
 DragMouseStateManager.addTraits(MouseStateManager);
 
 function DefaultMouseStateManager() {
-    this.isMouseDown = true;
+    this.isMouseDown = false;
 }
 
 DefaultMouseStateManager.prototype = {
     mousedown: function(e) {
         var grid_coord = screen_to_grid_coords([e.layerX, e.layerY]);
-        this.isMouseDown = true;
 
         // Try to find an object to take over the mouse interaction
         for (var i=0; i<renderableObjects.length; i++) {
             if (renderableObjects[i].isOver(grid_coord)) {
-                mouseStateManager = renderableObjects[i].press();
+                mouseStateManager = renderableObjects[i].press(e);
                 return;
             }
         }
+
+        // Using default scene panning behaviour
+        this.isMouseDown = true;
     },
     mousemove: function(e) {
         // Adjust global canvas pan
         if (this.isMouseDown) {
-            pan_x += event.movementX;
-            pan_y += event.movementY;
+            pan_x += e.movementX;
+            pan_y += e.movementY;
+
+            redraw();
         }
     },
     mouseup: function(e) {
         this.isMouseDown = false;
     }
 };
+
+DefaultMouseStateManager.addTraits(MouseStateManager);
 
 var defaultMouseStateManager = new DefaultMouseStateManager();
 mouseStateManager = defaultMouseStateManager;
@@ -158,7 +165,7 @@ var Pressable = {
         // Should override in subclass
         return false;
     },
-    press: function() {
+    press: function(e) {
         // Should override in subclass
         return defaultMouseStateManager;
     }
@@ -396,11 +403,12 @@ Node.prototype = {
     },
 
     isOver: function(pos) {
-        return this.hitbox.inBounds(pos);
+        var res = this.hitbox.inBounds(pos);
+        return res;
     },
 
     press: function(e) {
-        //return new DragMouseStateManager(this, e);
+        return new DragMouseStateManager(this, e);
     },
 
     update: function (x_or_obj, y) {
@@ -493,6 +501,10 @@ CanvasRenderingContext2D.prototype.fillRoundRect = function (x, y, w, h, r) {
 // | Application Mouse Events
 // '===========================================================================
 
+function delegateToMouseStateManager(event) {
+    mouseStateManager.event(event);
+}
+
 function mousedown(event) {
     if (mouseStateManager && mouseStateManager != defaultMouseStateManager) {
         if (mouseStateManager.event(event)) {
@@ -506,7 +518,7 @@ function mousedown(event) {
     var grid_coord = screen_to_grid_coords([event.layerX, event.layerY]);
     for (var i=0; i<renderableObjects.length; i++) {
         if (renderableObjects[i].isOver(grid_coord)) {
-            mouseStateManager = renderableObjects[i].press();
+            mouseStateManager = renderableObjects[i].press(event);
             //return;
         }
 
@@ -598,28 +610,18 @@ function scale_up(event) {
 }
 
 function redraw() {
-    /*
-    ctx.scale(scale_x / canvas_sx, scale_y / canvas_sy);
-    ctx.translate(pan_x - canvas_x, pan_y - canvas_y);
-
-    canvas_x = pan_x;
-    canvas_y = pan_y;
-
-    canvas_sx = scale_x;
-    canvas_sy = scale_y;
-    */
+    // Adjust the canvas window in the scene
     context.setTransform(scale_x, 0, 0, scale_y, pan_x, pan_y);
 
+    // Draw background
     if (bg_loaded) {
         var pattern = context.createPattern(bg_tile, 'repeat');
-
-        // Print background
         context.rect(-pan_x/scale_x, -pan_y/scale_y, canvas.width / scale_x, canvas.height / scale_y);
         context.fillStyle = pattern;
         context.fill();
     }
 
-    // Print rectangles
+    // Draw objects
     for (var i=0; i<renderableObjects.length; i++) {
         renderableObjects[i].draw(context);
     }
@@ -645,6 +647,7 @@ function add_square(event) {
 // '===========================================================================
 
 var bg_loaded = false;
+var usingStateManagers = true;
 
 
 // .===========================================================================
@@ -660,9 +663,17 @@ bg_tile.onload = function () {
 
 bg_tile.src = "grid_bg.png";
 
-canvas.addEventListener("mousedown", mousedown, false);
-window.addEventListener("mouseup", mouseup, false);
-window.addEventListener("mousemove", mousemove, false);
+//delegateToMouseStateManager
+if (usingStateManagers) {
+    canvas.addEventListener("mousedown", delegateToMouseStateManager, false);
+    window.addEventListener("mouseup", delegateToMouseStateManager, false);
+    window.addEventListener("mousemove", delegateToMouseStateManager, false);
+} else {
+    canvas.addEventListener("mousedown", mousedown, false);
+    window.addEventListener("mouseup", mouseup, false);
+    window.addEventListener("mousemove", mousemove, false);
+}
+
 canvas.addEventListener("mousewheel", scale_up, false);
 canvas.addEventListener("contextmenu", add_square, false);
 
