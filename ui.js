@@ -54,6 +54,8 @@ var pan_y = 0;
 var scale_x = 1.0;
 var scale_y = 1.0;
 
+var renderMode = "gpu";
+
 // .===========================================================================
 // | Mouse State Managers
 // '===========================================================================
@@ -1004,14 +1006,16 @@ var show = gpu.createKernel(function(A) {
     this.color(A[0][this.thread.y][this.thread.x],
                A[1][this.thread.y][this.thread.x],
                A[2][this.thread.y][this.thread.x]);
-}).mode("cpu")
+}).mode(renderMode)
     .dimensions([400, 400])
     .graphical(true);
 
 var avg = gpu.createKernel(function(A, B) {
-    return (A[this.thread.y][this.thread.x] + B[this.thread.y][this.thread.x]) / 2;
-}).mode("cpu")
+    return (A[this.thread.z][this.thread.y][this.thread.x] +
+            B[this.thread.z][this.thread.y][this.thread.x]) / 2;
+}).mode(renderMode)
     .dimensions([400, 400])
+    .outputToTexture(true)
     .graphical(false);
 
 var mux = gpu.createKernel(function(A, B, C) {
@@ -1022,26 +1026,32 @@ var mux = gpu.createKernel(function(A, B, C) {
     } else if (this.thread.z == 2) {
         return C[this.thread.y][this.thread.x];
     }
-}).mode("cpu")
+}).mode(renderMode)
     .dimensions([400, 400, 3])
+    .outputToTexture(true)
     .graphical(false);
 
 var maxk = gpu.createKernel(function(A, B) {
-    return Math.max(A[this.thread.y][this.thread.x], B[this.thread.y][this.thread.x]);
-}).mode("cpu")
-    .dimensions([400, 400])
+    return Math.max(A[this.thread.z][this.thread.y][this.thread.x],
+                    B[this.thread.z][this.thread.y][this.thread.x]);
+}).mode(renderMode)
+    .dimensions([400, 400, 3])
+    .outputToTexture(true)
     .graphical(false);
 
 var mink = gpu.createKernel(function(A, B) {
-    return Math.min(A[this.thread.y][this.thread.x], B[this.thread.y][this.thread.x]);
-}).mode("cpu")
-    .dimensions([400, 400])
+    return Math.min(A[this.thread.z][this.thread.y][this.thread.x],
+                    B[this.thread.z][this.thread.y][this.thread.x]);
+}).mode(renderMode)
+    .dimensions([400, 400, 3])
+    .outputToTexture(true)
     .graphical(false);
 
 var grad = gpu.createKernel(function() {
     return this.thread.x / 400;
-}).mode("cpu")
-    .dimensions([400, 400])
+}).mode(renderMode)
+    .dimensions([400, 400, 3])
+    .outputToTexture(true)
     .graphical(false);
 
 var circle = gpu.createKernel(function() {
@@ -1050,8 +1060,9 @@ var circle = gpu.createKernel(function() {
     var c = Math.min(1.0, Math.sqrt(sx*sx + sy*sy));
     return c;
 }).mode(mode)
-    .dimensions([400, 400]);
-    //.graphical(true);
+    .dimensions([400, 400, 3])
+    .outputToTexture(true)
+    .graphical(false);
 
 var resultCanvas = show.getCanvas();
 document.getElementsByTagName('body')[0].appendChild(resultCanvas);
@@ -1090,28 +1101,8 @@ var node2Pins = [
     {dir: "out", label:"C", type:"[x,y,4]"}
 ];
 
-//var tmp1 = new Node(128, 256, node1Pins);
-//var tmp2 = new Node(128, 256, node2Pins);
-
-//tmp1.setPos([0, 0]);
-//tmp2.setPos([500, 100]);
-//var tmp1 = (new Node(128, 256)).setPos([0, 0]);
-//var tmp2 = (new Node(128, 256)).setPos([500, 100]);
-
-//var tmp3 = new Edge(new NodePin(tmp1, "out", "out", "", 128 + Math.sqrt(3)/2 * 16, 32),
-//                    new NodePin(tmp2, "in",  "A", "", -Math.sqrt(3)/2*16, 32));
-
-//var tmp3 = new Edge(tmp1.pins["out"][0],
-//                    tmp2.pins["in"][1]);
-
-// function NodePin(node, dir, label, offsetX, offsetY) {
-//
-
 var displayNode = getNewDisplayNode();
 
-//renderableObjects.push(tmp1);
-//renderableObjects.push(tmp2);
-//renderableObjects.push(tmp3);
 renderableObjects.push(displayNode);
 renderableObjects.push(getGradNode());
 renderableObjects.push(getCircleNode());
@@ -1122,6 +1113,7 @@ renderableObjects.push(getMuxNode());
 
 function showNewImage() {
     displayNode.compute();
+    //show(avg(grad(), grad()));
 }
 
 window.setInterval(showNewImage, 500);
