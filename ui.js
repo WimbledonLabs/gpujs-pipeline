@@ -105,6 +105,17 @@ DragMouseStateManager.prototype = {
         // when going off-canvas
         var g = screen_to_grid_coords([e.layerX, e.layerY]);
 
+        // Hey! Let's copy the code from the default mouse movement code so that
+        // this can highlight things too. I'm sure I won't have to refactor this
+        // later ;)
+        for (var i=0; i<renderableObjects.length; i++) {
+            var obj = renderableObjects[i];
+            if (obj.isPressable) {
+                obj.isOver(g);
+            }
+        }
+
+
         g[0] += this.offsetX;
         g[1] += this.offsetY;
 
@@ -118,7 +129,6 @@ DragMouseStateManager.prototype = {
 DragMouseStateManager.addTraits(MouseStateManager);
 
 function EdgePointStateManager(point, event) {
-    console.log("Yay, we're using the edgepointstatemanager");
     this.draggedObj = point;
     this.offsetX = 0;
     this.offsetY = 0;
@@ -131,29 +141,41 @@ EdgePointStateManager.addTraits(DragMouseStateManager.prototype, {
         var current = this.draggedObj.inputPin || this.draggedObj.outputPin;
         var dir = (this.draggedObj.inputPin) ? "out" : "in";
 
-        console.log("Looking for pins going " + dir);
-
         var g = screen_to_grid_coords([e.layerX, e.layerY]);
 
         for (var i=0; i<renderableObjects.length; i++) {
             var obj = renderableObjects[i];
-            if (obj instanceof Node) {
-                for (var j=0; j<obj.pins[dir].length; j++) {
-                    var pin = obj.pins[dir][j];
-                    if (pin !== current && pin.inBounds(g[0], g[1])) {
-                        // Set the dir
-                        if (this.draggedObj.inputPin) {
-                            this.draggedObj.outputPin = pin;
-                        } else {
-                            this.draggedObj.inputPin = pin;
-                        }
-                        redraw();
 
-                        console.log("Finished Edge");
-                        this.useDefaultMouseState();
-                        return;
-                    }
+            // TODO look for NodePins, rather than the Nodes that contain them
+            if (obj instanceof NodePin) {
+                var pin = obj;
+
+                // TODO pressing on a node twice should remove all
+                var samePin = pin === current;
+                var inBounds = pin.inBounds(g[0], g[1]);
+                var directionCorrect = pin.dir !== current.dir;
+                var notSameParent = pin.node !== current.node;
+                if (!samePin && inBounds && directionCorrect && notSameParent) {
+                    this.draggedObj.connect(pin, current);
+                    this.useDefaultMouseState();
+                    redraw();
+                    return;
                 }
+
+                else if (samePin && inBounds && !this.firstPress) {
+                    if (pin.dir === "in" && pin.edge) {
+                        pin.edge.removeEdge();
+                    } else {
+                        while (pin.edges.length > 0) {
+                            pin.edges[0].removeEdge();
+                        }
+                    }
+                    renderableObjects.remove(this.draggedObj);
+                    this.useDefaultMouseState();
+                    redraw();
+                    return;
+                }
+
             }
         }
 
@@ -161,9 +183,11 @@ EdgePointStateManager.addTraits(DragMouseStateManager.prototype, {
         if (!this.firstPress) {
             console.log("Try better to click on an actual pin...");
             renderableObjects.remove(this.draggedObj);
-            redraw();
             this.useDefaultMouseState();
+            redraw();
+            return;
         }
+        console.log("First press up");
         this.firstPress = false;
     },
 });
@@ -192,20 +216,26 @@ DefaultMouseStateManager.prototype = {
 
         // Using default scene panning behaviour
         this.isMouseDown = true;
-        console.log("Default mousedown");
     },
     mousemove: function(e) {
+        var grid_coord = screen_to_grid_coords([e.layerX, e.layerY]);
+        for (var i=0; i<renderableObjects.length; i++) {
+            var obj = renderableObjects[i];
+            if (obj.isPressable) {
+                obj.isOver(grid_coord);
+            }
+        }
+
         // Adjust global canvas pan
         if (this.isMouseDown) {
             pan_x += e.movementX;
             pan_y += e.movementY;
-
-            redraw();
         }
+
+        redraw();
     },
     mouseup: function(e) {
         this.isMouseDown = false;
-        console.log("Default mouseup");
     }
 };
 
@@ -378,6 +408,9 @@ function NodePin(node, dir, label, type, offsetX, offsetY) {
     this._y = offsetY;
 
     this.type = type;
+
+    this.hovered = false;
+    this.edges = [];
 }
 
 NodePin.prototype = {
@@ -394,11 +427,11 @@ NodePin.prototype = {
     },
 
     isOver: function(pos) {
-        return this.inBounds(pos[0], pos[1]);
+        this.hovered = this.inBounds(pos[0], pos[1]);
+        return this.hovered;
     },
 
     press: function(e) {
-        console.log("Adding edge");
         var g = screen_to_grid_coords([e.layerX, e.layerY]);
 
         var inPin = (this.dir === "in") ? this : null;
@@ -417,7 +450,6 @@ NodePin.prototype = {
 
     inBounds: function(x, y) {
         // TODO not repeat code...
-        console.log("Pin check bounds");
         var h = Math.sqrt(3)/2 * this.PIN_SIZE;
 
         // Sorry, it's easier to create branches than actually use the
@@ -433,7 +465,8 @@ NodePin.prototype = {
 
     draw: function(ctx) {
         var angle = (this.dir === "in") ? Math.PI / 6 : Math.PI / 2;
-        ctx.fillStyle = "#333333";
+        ctx.fillStyle = this.hovered ? "#AAA" : "#333333";
+        ctx.strokeStyle = this.hovered ? "#FFA500" : "#333333";
         ctx.fillTri(this._x + this.node.x, this._y + this.node.y, this.PIN_SIZE, angle);
         ctx.stroke();
     }
@@ -445,6 +478,10 @@ function Edge(outputPin, inputPin) {
     this.outputPin = outputPin;
     this.inputPin = inputPin;
 
+    if (outputPin && inputPin) {
+        this.connect(outputPin, inputPin);
+    }
+
     // This is kind of ugly. Basically we need a way to render the edge
     // before it has both points to snap to. So here we have a "floating"
     // vertex :(
@@ -453,6 +490,40 @@ function Edge(outputPin, inputPin) {
 }
 
 Edge.prototype = {
+    removeEdge: function() {
+        renderableObjects.remove(this);
+        if (this.inputPin) {
+            this.inputPin.edge = undefined;
+        } if (this.outputPin) {
+            this.outputPin.edges.remove(this);
+        }
+    },
+
+    connect: function(pin1, pin2) {
+        var input;
+        var output;
+        if (pin1.dir === "in") {
+            input = pin1;
+            output = pin2;
+        } else {
+            output = pin1;
+            input = pin2;
+        }
+
+        if (input.edge) {
+            input.edge.removeEdge();
+        }
+
+        output.edges.push(this);
+        input.edge = this;
+
+        this.outputPin = output;
+        this.inputPin = input;
+
+        // Unneeded since we expect this to already be in the list
+        // renderableObjects.push(this);
+    },
+
     draw: function (in_ctx) {
         var vf = [this.x, this.y];
         var vi = vf;
@@ -530,6 +601,8 @@ function Node(w, h, pinDesc) {
     this.w = w;
     this.h = h;
 
+    this.label = "No Label Given";
+
 //function NodePin(node, dir, label, type, offsetX, offsetY) {
 
     this.hitbox = new Hitbox(this.x, this.y, this.w, this.h);
@@ -540,7 +613,7 @@ function Node(w, h, pinDesc) {
 
     var offsetX = {}
     offsetX["in"] = -Math.sqrt(3) * 8 / 3;
-    offsetX["out"] = 128 + Math.sqrt(3) * 8 / 3;
+    offsetX["out"] = this.w + Math.sqrt(3) * 8 / 3;
 
     var offsetY = {}
     offsetY["in"] = 32;
@@ -559,10 +632,13 @@ function Node(w, h, pinDesc) {
 
 Node.prototype = {
     draw: function (in_ctx) {
+        in_ctx.strokeStyle = "#333333";
         in_ctx.fillStyle = "#a0a0a0";
         in_ctx.fillRoundRect(this.x, this.y, this.w, this.h, 16);
         in_ctx.stroke();
 
+        in_ctx.fillStyle = "#000000";
+        in_ctx.fillText(this.label, this.x + 8, this.y + 15);
         //this.pins.forEach(function(dir) { this.pins[dir].forEach(function(pin) {pin.draw()}) } );
         // ^How about the following instead?
 
@@ -604,9 +680,98 @@ Node.prototype = {
             this.hitbox.update(d);
         }
     },
+
+    compute: function() {
+        var params = [];
+        for (var i=0; i<this.pins["in"].length; i++) {
+            if (this.pins["in"][i].edge) {
+                params.push(this.pins["in"][i].edge.outputPin.node.compute());
+            } else {
+                console.log("Not all inputs are connected for " + this.label);
+                return;
+            }
+        }
+
+        var val = this.kern.apply(undefined, params);
+        return val;
+    },
 };
 
 Node.addTraits(Renderable, Pressable);
+
+function getNewDisplayNode() {
+    var node = new Node(64, 64, [{dir:"in", label:"A", type:"[x,y,4]"}]);
+    node.setPos([500, 100]);
+    node.label = "Display";
+    node.kern = show;
+    return node;
+}
+
+function getImgNode(imgArr) {
+    var node = new Node(64, 64, [{dir:"out", label:"img", type:"[x,y,4]"}]);
+    node.setPos([500, 100]);
+    node.label = "Image";
+    console.log(imgArr);
+    node.compute = function() {
+        return imgArr;
+    }
+    return node;
+}
+
+function getCircleNode() {
+    var node = new Node(64, 64, [{dir:"out", label:"Out", type:"[x,y,4]"}]);
+    node.setPos([0, 200]);
+    node.label = "Circle";
+    node.kern = circle;
+    return node;
+}
+
+function getGradNode() {
+    var node = new Node(64, 64, [{dir:"out", label:"Out", type:"[x,y,4]"}]);
+    node.setPos([0, 0]);
+    node.label = "Gradient";
+    node.kern = grad;
+    return node;
+}
+
+function getAverageNode() {
+    var node = new Node(64, 64+32, [
+            {dir:"in", label:"In", type:"[x,y,4]"},
+            {dir:"in", label:"In", type:"[x,y,4]"},
+            {dir:"out", label:"Out", type:"[x,y,4]"},
+    ]);
+    node.setPos([250, 100]);
+    node.label = "Average";
+    node.kern = avg;
+    node.kern.length = 2;
+    return node;
+}
+
+function getMaxNode() {
+    var node = new Node(64, 64+32, [
+            {dir:"in", label:"In", type:"[x,y,4]"},
+            {dir:"in", label:"In", type:"[x,y,4]"},
+            {dir:"out", label:"Out", type:"[x,y,4]"},
+    ]);
+    node.setPos([250, 100]);
+    node.label = "Max";
+    node.kern = maxk;
+    node.kern.length = 2;
+    return node;
+}
+
+function getMinNode() {
+    var node = new Node(64, 64+32, [
+            {dir:"in", label:"In", type:"[x,y,4]"},
+            {dir:"in", label:"In", type:"[x,y,4]"},
+            {dir:"out", label:"Out", type:"[x,y,4]"},
+    ]);
+    node.setPos([250, 100]);
+    node.label = "Min";
+    node.kern = mink;
+    node.kern.length = 2;
+    return node;
+}
 
 
 // .===========================================================================
@@ -730,6 +895,39 @@ function redraw() {
 }
 
 
+/* Taken from example code */
+function loadImage(imageElement) {
+    var imag = imageElement;
+    var arr = [];
+    //var canvas = document.getElementById("backimageCanvas");
+    //var ctx = canvas.getContext('2d');
+    //var imag = document.getElementById("backimage");
+    context.drawImage(imag, 0, 0);
+    imag.style.display = 'none';
+
+    var imageData = context.getImageData(0, 0, 400, 400);
+
+    for (var channel=0; channel<4; channel++) {
+        arr.push([]);
+        for (var y=0; y<600; y++) {
+            arr[channel].push([]);
+        }
+    }
+    var pointer = 0;
+    for (var y=0; y<400; y++) {
+        for (var x=0; x<400; x++) {
+            arr[0][400-y-1][x] = imageData.data[pointer++]/256;
+            arr[1][400-y-1][x] = imageData.data[pointer++]/256;
+            arr[2][400-y-1][x] = imageData.data[pointer++]/256;
+            arr[3][400-y-1][x] = imageData.data[pointer++]/256;
+        }
+    }
+
+    //return arr;
+    renderableObjects.push(getImgNode(arr));
+}
+
+
 // .==========================================================================.
 // |==========================================================================|
 // |==========================================================================|
@@ -771,8 +969,54 @@ var bg_loaded = false;
 // | Initialization
 // '===========================================================================
 
-var bg_tile = new Image();
+var show = gpu.createKernel(function(A) {
+    this.color(A[0][this.thread.y][this.thread.x],
+               A[1][this.thread.y][this.thread.x],
+               A[2][this.thread.y][this.thread.x]);
+}).mode("cpu")
+    .dimensions([400, 400])
+    .graphical(true);
 
+var avg = gpu.createKernel(function(A, B) {
+    return (A[this.thread.y][this.thread.x] + B[this.thread.y][this.thread.x]) / 2;
+}).mode("cpu")
+    .dimensions([400, 400])
+    .graphical(false);
+
+var maxk = gpu.createKernel(function(A, B) {
+    return Math.max(A[this.thread.y][this.thread.x], B[this.thread.y][this.thread.x]);
+}).mode("cpu")
+    .dimensions([400, 400])
+    .graphical(false);
+
+var mink = gpu.createKernel(function(A, B) {
+    return Math.min(A[this.thread.y][this.thread.x], B[this.thread.y][this.thread.x]);
+}).mode("cpu")
+    .dimensions([400, 400])
+    .graphical(false);
+
+var grad = gpu.createKernel(function() {
+    return this.thread.x / 200;
+}).mode("cpu")
+    .dimensions([400, 400])
+    .graphical(false);
+
+var circle = gpu.createKernel(function() {
+    var sx = (this.thread.x - 100) / 80;
+    var sy = (this.thread.y - 100) / 80;
+    var c = Math.min(1.0, Math.sqrt(sx*sx + sy*sy));
+    return c;
+}).mode(mode)
+    .dimensions([200, 200]);
+    //.graphical(true);
+
+var resultCanvas = show.getCanvas();
+document.getElementsByTagName('body')[0].appendChild(resultCanvas);
+
+//show.apply(undefined, [avg.apply(undefined, [circle(), grad()])]);
+//show(grad());
+
+var bg_tile = new Image();
 bg_tile.onload = function () {
     bg_loaded = true;
     redraw();
@@ -814,23 +1058,37 @@ var node2Pins = [
     {dir: "out", label:"C", type:"[x,y,4]"}
 ];
 
-var tmp1 = new Node(128, 256, node1Pins);
-var tmp2 = new Node(128, 256, node2Pins);
+//var tmp1 = new Node(128, 256, node1Pins);
+//var tmp2 = new Node(128, 256, node2Pins);
 
-tmp1.setPos([0, 0]);
-tmp2.setPos([500, 100]);
+//tmp1.setPos([0, 0]);
+//tmp2.setPos([500, 100]);
 //var tmp1 = (new Node(128, 256)).setPos([0, 0]);
 //var tmp2 = (new Node(128, 256)).setPos([500, 100]);
 
 //var tmp3 = new Edge(new NodePin(tmp1, "out", "out", "", 128 + Math.sqrt(3)/2 * 16, 32),
 //                    new NodePin(tmp2, "in",  "A", "", -Math.sqrt(3)/2*16, 32));
 
-var tmp3 = new Edge(tmp1.pins["out"][0],
-                    tmp2.pins["in"][1]);
+//var tmp3 = new Edge(tmp1.pins["out"][0],
+//                    tmp2.pins["in"][1]);
 
 // function NodePin(node, dir, label, offsetX, offsetY) {
+//
 
-renderableObjects.push(tmp1);
-renderableObjects.push(tmp2);
-renderableObjects.push(tmp3);
+var displayNode = getNewDisplayNode();
 
+//renderableObjects.push(tmp1);
+//renderableObjects.push(tmp2);
+//renderableObjects.push(tmp3);
+renderableObjects.push(displayNode);
+renderableObjects.push(getGradNode());
+renderableObjects.push(getCircleNode());
+renderableObjects.push(getAverageNode());
+renderableObjects.push(getMaxNode());
+renderableObjects.push(getMinNode());
+
+function showNewImage() {
+    displayNode.compute();
+}
+
+window.setInterval(showNewImage, 500);

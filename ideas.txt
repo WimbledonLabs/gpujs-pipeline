@@ -51,8 +51,13 @@ Filters:
     - Triangles
 
 Random:
-- Conway's game of life!!
-- N-body boids
+    - Conway's game of life
+    - N-body boids
+    - Noise removal
+    - Pattern search
+    - Fourier transform
+    - Wave sources
+    - Texture warp
 
 Other considerations:
 - Creating pipelines
