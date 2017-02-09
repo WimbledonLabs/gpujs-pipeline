@@ -5,6 +5,9 @@
 body {
     padding: 0px;
     margin: 0em;
+
+    background-color: purple;
+
 }
 
 #fps {
@@ -32,12 +35,15 @@ body {
 }
 </style>
     </head>
-    <body>
+    <body onload="recomputeCanvasSize()">
         <span id="fps">0</span>
          <span id="mouse_coords">(0, 0)</span>
          <span id="grid_coords">(0, 0)</span>
          <div id="grid_fn"></div>
         <canvas id="plan"></canvas>
+        <!-- This is the most literal clipboard I've ever programmed...
+             used to store pixel data when loading an image into a matrix -->
+        <canvas id="clipboard" width="1000" height="1000" style="display: none;"></canvas>
         <!-- <div id="debug"></div> -->
 
 <!--    <canvas id="scaled" width="512" height="512">

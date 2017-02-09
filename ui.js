@@ -773,6 +773,20 @@ function getMinNode() {
     return node;
 }
 
+function getMuxNode() {
+    var node = new Node(64, 128, [
+            {dir:"in", label:"R", type:"[x,y,4]"},
+            {dir:"in", label:"G", type:"[x,y,4]"},
+            {dir:"in", label:"B", type:"[x,y,4]"},
+            {dir:"out", label:"Out", type:"[x,y,4]"},
+    ]);
+    node.setPos([300, 100]);
+    node.label = "Mux";
+    node.kern = mux;
+    node.kern.length = 3;
+    return node;
+}
+
 
 // .===========================================================================
 // | Canvas Prototype Functions
@@ -902,14 +916,15 @@ function loadImage(imageElement) {
     //var canvas = document.getElementById("backimageCanvas");
     //var ctx = canvas.getContext('2d');
     //var imag = document.getElementById("backimage");
-    context.drawImage(imag, 0, 0);
+    var clipboardCtx = document.getElementById("clipboard").getContext('2d');
+    clipboardCtx.drawImage(imag, 0, 0, 400, 400);
     imag.style.display = 'none';
 
-    var imageData = context.getImageData(0, 0, 400, 400);
+    var imageData = clipboardCtx.getImageData(0, 0, 400, 400);
 
     for (var channel=0; channel<4; channel++) {
         arr.push([]);
-        for (var y=0; y<600; y++) {
+        for (var y=0; y<400; y++) {
             arr[channel].push([]);
         }
     }
@@ -925,6 +940,22 @@ function loadImage(imageElement) {
 
     //return arr;
     renderableObjects.push(getImgNode(arr));
+}
+
+function recomputeCanvasSize() {
+    var style = window.getComputedStyle(canvas);
+    // Grab actual dimensions from the computed style
+    var calcWidth = parseInt(style.width.substring(0, style.width.length-2))
+    var calcHeight = parseInt(style.height.substring(0, style.height.length-2))
+
+    var needs_redraw = calcWidth != canvas.width || calcHeight != canvas.height;
+
+    if (needs_redraw) {
+        console.log("Needs redraw");
+        canvas.width = calcWidth;
+        canvas.height = calcHeight;
+        redraw();
+    }
 }
 
 
@@ -983,6 +1014,18 @@ var avg = gpu.createKernel(function(A, B) {
     .dimensions([400, 400])
     .graphical(false);
 
+var mux = gpu.createKernel(function(A, B, C) {
+    if (this.thread.z == 0) {
+        return A[this.thread.y][this.thread.x];
+    } else if (this.thread.z == 1) {
+        return B[this.thread.y][this.thread.x];
+    } else if (this.thread.z == 2) {
+        return C[this.thread.y][this.thread.x];
+    }
+}).mode("cpu")
+    .dimensions([400, 400, 3])
+    .graphical(false);
+
 var maxk = gpu.createKernel(function(A, B) {
     return Math.max(A[this.thread.y][this.thread.x], B[this.thread.y][this.thread.x]);
 }).mode("cpu")
@@ -996,18 +1039,18 @@ var mink = gpu.createKernel(function(A, B) {
     .graphical(false);
 
 var grad = gpu.createKernel(function() {
-    return this.thread.x / 200;
+    return this.thread.x / 400;
 }).mode("cpu")
     .dimensions([400, 400])
     .graphical(false);
 
 var circle = gpu.createKernel(function() {
-    var sx = (this.thread.x - 100) / 80;
-    var sy = (this.thread.y - 100) / 80;
+    var sx = (this.thread.x - 200) / 160;
+    var sy = (this.thread.y - 200) / 160;
     var c = Math.min(1.0, Math.sqrt(sx*sx + sy*sy));
     return c;
 }).mode(mode)
-    .dimensions([200, 200]);
+    .dimensions([400, 400]);
     //.graphical(true);
 
 var resultCanvas = show.getCanvas();
@@ -1032,18 +1075,7 @@ canvas.addEventListener("mousewheel", scale_up, false);
 canvas.addEventListener("contextmenu", add_square, false);
 
 window.setInterval(function () {
-    var style = window.getComputedStyle(canvas);
-    var calcWidth = parseInt(style.width.substring(0, style.width.length-2))
-    var calcHeight = parseInt(style.height.substring(0, style.height.length-2))
-
-    var needs_redraw = calcWidth != canvas.width || calcHeight != canvas.height;
-
-    if (needs_redraw) {
-        console.log("Needs redraw");
-        canvas.width = calcWidth;
-        canvas.height = calcHeight;
-        redraw();
-    }
+    recomputeCanvasSize();
 }, 500);
 
 //    {dir:"in", label:"A", type:"[x,y,4]"},
@@ -1086,6 +1118,7 @@ renderableObjects.push(getCircleNode());
 renderableObjects.push(getAverageNode());
 renderableObjects.push(getMaxNode());
 renderableObjects.push(getMinNode());
+renderableObjects.push(getMuxNode());
 
 function showNewImage() {
     displayNode.compute();
