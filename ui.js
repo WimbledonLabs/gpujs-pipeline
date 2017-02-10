@@ -56,6 +56,70 @@ var scale_y = 1.0;
 
 var renderMode = "gpu";
 
+var functionList = [
+    ["Image", getImgNode],
+    ["circle", nodeType(circle)],
+    ["grad", nodeType(grad)],
+    ["avg", nodeType(avg)],
+    ["maxk", nodeType(maxk)],
+    ["mink", nodeType(mink)],
+    ["mux", nodeType(mux)],
+    ["Two Tone", nodeType(function twotone(A) {
+        return Math.floor(0.5 + Math.sign(A[this.thread.z][this.thread.y][this.thread.x] - 0.5)/2 + 0.5 )
+    })],
+    ["Brightness", nodeType(function darken(A, val) {
+        return val*A[this.thread.z][this.thread.y][this.thread.x];
+    })],
+    ["Translate", nodeType(function translate(A, x, y) {
+        var tx = (this.thread.x + x * this.dimensions.x) % this.dimensions.x;
+        var ty = (this.thread.y + y * this.dimensions.y) % this.dimensions.y;
+        return A[this.thread.z][Math.floor(0.5 + ty)][Math.floor(0.5 + tx)];
+    })],
+    ["Slider", getSliderNode],
+    ["Time", getTimeNode],
+    ["", nodeType()],
+];
+
+
+// .===========================================================================
+// | Traits
+// '===========================================================================
+
+var Renderable = {
+    get isRenderable() {
+        return true;
+    },
+    draw: function(ctx) {
+        // Should override in subclass
+        ctx.fillStyle = "rgba(1.0, 0, 1.0, 1.0)";
+        ctx.fillTri(0, 0, 16, 1.0);
+    }
+};
+
+var Pressable = {
+    get isPressable() {
+        return true;
+    },
+    isOver: function(pos) {
+        // Should override in subclass
+        return false;
+    },
+    press: function(e) {
+        // Should override in subclass
+        return defaultMouseStateManager;
+    }
+};
+
+var Pinnable = {
+    get isPin() {
+        return true;
+    },
+    get pinDirection() {
+        return "neither";
+    },
+};
+
+
 // .===========================================================================
 // | Mouse State Managers
 // '===========================================================================
@@ -86,6 +150,83 @@ var MouseStateManager = {
         mouseStateManager = defaultMouseStateManager;
     }
 }
+
+function ContextMenuStateManager(event) {
+    var g = screen_to_grid_coords([event.layerX, event.layerY]);
+    this.x = g[0];
+    this.y = g[1];
+    this.w = 100;
+    this.h = 200;
+    renderableObjects.push(this);
+
+    this.mousePos = g;
+    this.rMousePos = [0,0];
+}
+
+ContextMenuStateManager.prototype = {
+    draw: function(ctx) {
+        var list = functionList;
+
+        var oldLineWidth = ctx.lineWidth;
+        ctx.beginPath();
+            ctx.strokeStyle = "#333333";
+            ctx.lineWidth = 2;
+            ctx.fillStyle = "#a0a0a0";
+            ctx.rect(this.x, this.y, this.w, this.h);
+            ctx.fill();
+            ctx.stroke();
+        ctx.closePath();
+
+        ctx.fillStyle = "#000000";
+        for (var i=0; i<list.length; i++) {
+            if (this.rMousePos[1] < 18 + 16 * i &&
+                    this.rMousePos[1] > 22 + 16 * (i-1) &&
+                    this.rMousePos[0] > 5 &&
+                    this.rMousePos[0] < this.w) {
+                ctx.fillStyle = "#777777";
+                ctx.fillRect(this.x + 5,   this.y + 22 + 16 * (i-1),
+                             this.w - 2*5, 16 - 4);
+                ctx.fillStyle = "#000000";
+            } else {
+                ctx.fillStyle = "#000000";
+            }
+            ctx.fillText(list[i][0], this.x + 8, this.y + 15 + 16 * i);
+        }
+
+        ctx.lineWidth = oldLineWidth;
+    },
+
+    mousemove: function(e) {
+        var g = screen_to_grid_coords([e.layerX, e.layerY]);
+        this.mousePos = g;
+        this.rMousePos = [g[0] - this.x, g[1] - this.y];
+        redraw();
+    },
+
+    mousedown: function(e) {
+        var list = functionList;
+        for (var i=0; i<list.length; i++) {
+            if (this.rMousePos[1] < 18 + 16 * i &&
+                    this.rMousePos[1] > 22 + 16 * (i-1) &&
+                    this.rMousePos[0] > 5 &&
+                    this.rMousePos[0] < this.w) {
+                var node = list[i][1].call(undefined);
+                node.setPos(this.mousePos);
+                renderableObjects.push(node);
+            }
+        }
+
+        this.useDefaultMouseState(e);
+        redraw();
+    },
+
+    useDefaultMouseState: function(e) {
+        renderableObjects.remove(this);
+        MouseStateManager.useDefaultMouseState(e);
+    }
+}
+
+ContextMenuStateManager.addTraits(MouseStateManager, Renderable);
 
 function DragMouseStateManager(obj, event) {
     var g = screen_to_grid_coords([event.layerX, event.layerY]);
@@ -245,45 +386,6 @@ DefaultMouseStateManager.addTraits(MouseStateManager);
 
 var defaultMouseStateManager = new DefaultMouseStateManager();
 mouseStateManager = defaultMouseStateManager;
-
-
-// .===========================================================================
-// | Traits
-// '===========================================================================
-
-var Renderable = {
-    get isRenderable() {
-        return true;
-    },
-    draw: function(ctx) {
-        // Should override in subclass
-        ctx.fillStyle = "rgba(1.0, 0, 1.0, 1.0)";
-        ctx.fillTri(0, 0, 16, 1.0);
-    }
-};
-
-var Pressable = {
-    get isPressable() {
-        return true;
-    },
-    isOver: function(pos) {
-        // Should override in subclass
-        return false;
-    },
-    press: function(e) {
-        // Should override in subclass
-        return defaultMouseStateManager;
-    }
-};
-
-var Pinnable = {
-    get isPin() {
-        return true;
-    },
-    get pinDirection() {
-        return "neither";
-    },
-};
 
 
 // .===========================================================================
@@ -698,7 +800,7 @@ Node.prototype = {
             if (this.pins["in"][i].edge) {
                 params.push(this.pins["in"][i].edge.outputPin.node.compute());
             } else {
-                console.log("Not all inputs are connected for " + this.label);
+                //console.log("Not all inputs are connected for " + this.label);
                 return;
             }
         }
@@ -761,21 +863,28 @@ function getSliderNode() {
     return node;
 }
 
-function getNewNode(fn, x, y) {
-    var pins = [{dir:"out", label:"Out", type:"[x,y,4]"}];
-    for (var i=0; i<fn.length; i++) {
-        pins.push({dir:"in", label:"In", type:"[x,y,4]"})
+/* nodeType takes in a function a returns a function which is a factory
+ * for nodes which perform the provided function
+ */
+function nodeType(fn) {
+    var factory = function() {
+        var pins = [{dir:"out", label:"Out", type:"[x,y,4]"}];
+        for (var i=0; i<fn.length; i++) {
+            pins.push({dir:"in", label:"In", type:"[x,y,4]"})
+        }
+        var node = new Node(64, 32 + 32 * Math.max(1, fn.length), pins);
+        node.setPos([x||0, y||0]);
+        node.label = fn.name;
+        node.kern = gpu.createKernel(fn)
+            .mode(renderMode)
+            .dimensions([400, 400, 3])
+            .outputToTexture(true)
+            .graphical(false);
+        return node;
     }
-    var node = new Node(64, 32 + 32 * fn.length, pins);
-    node.setPos([x||0, y||0]);
-    node.label = fn.name;
-    node.kern = gpu.createKernel(fn)
-        .mode(renderMode)
-        .dimensions([400, 400, 3])
-        .outputToTexture(true)
-        .graphical(false);
-    return node;
-}
+
+    return factory;
+};
 
 function getNewDisplayNode() {
     var node = new Node(64, 64, [{dir:"in", label:"A", type:"[x,y,4]"}]);
@@ -787,81 +896,12 @@ function getNewDisplayNode() {
 
 function getImgNode(imgArr) {
     var node = new Node(64, 64, [{dir:"out", label:"img", type:"[x,y,4]"}]);
-    node.setPos([500, 100]);
+    node.setPos([300, 100]);
     node.label = "Image";
     console.log(imgArr);
     node.compute = function() {
         return imgArr;
     }
-    return node;
-}
-
-function getCircleNode() {
-    var node = new Node(64, 64, [{dir:"out", label:"Out", type:"[x,y,4]"}]);
-    node.setPos([0, 200]);
-    node.label = "Circle";
-    node.kern = circle;
-    return node;
-}
-
-function getGradNode() {
-    var node = new Node(64, 64, [{dir:"out", label:"Out", type:"[x,y,4]"}]);
-    node.setPos([0, 0]);
-    node.label = "Gradient";
-    node.kern = grad;
-    return node;
-}
-
-function getAverageNode() {
-    var node = new Node(64, 64+32, [
-            {dir:"in", label:"In", type:"[x,y,4]"},
-            {dir:"in", label:"In", type:"[x,y,4]"},
-            {dir:"out", label:"Out", type:"[x,y,4]"},
-    ]);
-    node.setPos([250, 100]);
-    node.label = "Average";
-    node.kern = avg;
-    node.kern.length = 2;
-    return node;
-}
-
-function getMaxNode() {
-    var node = new Node(64, 64+32, [
-            {dir:"in", label:"In", type:"[x,y,4]"},
-            {dir:"in", label:"In", type:"[x,y,4]"},
-            {dir:"out", label:"Out", type:"[x,y,4]"},
-    ]);
-    node.setPos([250, 100]);
-    node.label = "Max";
-    node.kern = maxk;
-    node.kern.length = 2;
-    return node;
-}
-
-function getMinNode() {
-    var node = new Node(64, 64+32, [
-            {dir:"in", label:"In", type:"[x,y,4]"},
-            {dir:"in", label:"In", type:"[x,y,4]"},
-            {dir:"out", label:"Out", type:"[x,y,4]"},
-    ]);
-    node.setPos([250, 100]);
-    node.label = "Min";
-    node.kern = mink;
-    node.kern.length = 2;
-    return node;
-}
-
-function getMuxNode() {
-    var node = new Node(64, 128, [
-            {dir:"in", label:"R", type:"[x,y,4]"},
-            {dir:"in", label:"G", type:"[x,y,4]"},
-            {dir:"in", label:"B", type:"[x,y,4]"},
-            {dir:"out", label:"Out", type:"[x,y,4]"},
-    ]);
-    node.setPos([300, 100]);
-    node.label = "Mux";
-    node.kern = mux;
-    node.kern.length = 3;
     return node;
 }
 
@@ -1046,7 +1086,7 @@ function recomputeCanvasSize() {
 function add_square(event) {
     var g = screen_to_grid_coords([event.layerX, event.layerY]);
 
-    renderableObjects.push( (new Node(128, 256, node2Pins)).setPos(g) )
+    mouseStateManager = new ContextMenuStateManager(event);
 
     event.preventDefault();
     redraw();
@@ -1086,15 +1126,11 @@ var show = gpu.createKernel(function(A) {
     .dimensions([400, 400])
     .graphical(true);
 
-var avg = gpu.createKernel(function(A, B) {
+function avg(A, B) {
     return (A[this.thread.z][this.thread.y][this.thread.x] +
             B[this.thread.z][this.thread.y][this.thread.x]) / 2;
-}).mode(renderMode)
-    .dimensions([400, 400, 3])
-    .outputToTexture(true)
-    .graphical(false);
-
-var mux = gpu.createKernel(function(A, B, C) {
+}
+function mux(A, B, C) {
     if (this.thread.z == 0) {
         return A[this.thread.y][this.thread.x];
     } else if (this.thread.z == 1) {
@@ -1102,43 +1138,28 @@ var mux = gpu.createKernel(function(A, B, C) {
     } else if (this.thread.z == 2) {
         return C[this.thread.y][this.thread.x];
     }
-}).mode(renderMode)
-    .dimensions([400, 400, 3])
-    .outputToTexture(true)
-    .graphical(false);
+}
 
-var maxk = gpu.createKernel(function(A, B) {
+function maxk(A, B) {
     return Math.max(A[this.thread.z][this.thread.y][this.thread.x],
                     B[this.thread.z][this.thread.y][this.thread.x]);
-}).mode(renderMode)
-    .dimensions([400, 400, 3])
-    .outputToTexture(true)
-    .graphical(false);
+}
 
-var mink = gpu.createKernel(function(A, B) {
+function mink(A, B) {
     return Math.min(A[this.thread.z][this.thread.y][this.thread.x],
                     B[this.thread.z][this.thread.y][this.thread.x]);
-}).mode(renderMode)
-    .dimensions([400, 400, 3])
-    .outputToTexture(true)
-    .graphical(false);
+}
 
-var grad = gpu.createKernel(function() {
+function grad() {
     return this.thread.x / 400;
-}).mode(renderMode)
-    .dimensions([400, 400, 3])
-    .outputToTexture(true)
-    .graphical(false);
+}
 
-var circle = gpu.createKernel(function() {
+function circle() {
     var sx = (this.thread.x - 200) / 160;
     var sy = (this.thread.y - 200) / 160;
     var c = Math.min(1.0, Math.sqrt(sx*sx + sy*sy));
     return c;
-}).mode(mode)
-    .dimensions([400, 400, 3])
-    .outputToTexture(true)
-    .graphical(false);
+}
 
 var resultCanvas = show.getCanvas();
 document.getElementsByTagName('body')[0].appendChild(resultCanvas);
@@ -1167,46 +1188,11 @@ window.setInterval(function () {
 
 //    {dir:"in", label:"A", type:"[x,y,4]"},
 
-var node1Pins = [
-    {dir: "out", label:"src", type:"[x,y,4]"}
-];
-
-var node2Pins = [
-    {dir: "in",  label:"A", type:"[x,y,4]"},
-    {dir: "in",  label:"B", type:"[x,y,4]"},
-    {dir: "out", label:"C", type:"[x,y,4]"}
-];
-
 var displayNode = getNewDisplayNode();
-
 renderableObjects.push(displayNode);
-renderableObjects.push(getGradNode());
-renderableObjects.push(getCircleNode());
-renderableObjects.push(getAverageNode());
-renderableObjects.push(getMaxNode());
-renderableObjects.push(getMinNode());
-renderableObjects.push(getMuxNode());
-renderableObjects.push(getSliderNode());
-renderableObjects.push(getTimeNode());
-
-renderableObjects.push(getNewNode(function translate(A, x, y) {
-    var tx = (this.thread.x + x * this.dimensions.x) % this.dimensions.x;
-    var ty = (this.thread.y + y * this.dimensions.y) % this.dimensions.y;
-    return A[this.thread.z][Math.floor(0.5 + ty)][Math.floor(0.5 + tx)];
-}));
-
-renderableObjects.push(getNewNode(function darken(A, val) {
-    return val*A[this.thread.z][this.thread.y][this.thread.x];
-}));
-
-renderableObjects.push(getNewNode(function twotone(A) {
-    return Math.floor(0.5 + Math.sign(A[this.thread.z][this.thread.y][this.thread.x] - 0.5)/2 + 0.5 )
-}));
-
 
 function showNewImage() {
     displayNode.compute();
-    //show(avg(grad(), grad()));
 }
 
 window.setInterval(showNewImage, 20);
