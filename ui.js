@@ -604,6 +604,7 @@ function Node(w, h, pinDesc) {
     this.h = h;
 
     this.label = "No Label Given";
+    this.type = "default";
 
 //function NodePin(node, dir, label, type, offsetX, offsetY) {
 
@@ -635,7 +636,15 @@ function Node(w, h, pinDesc) {
 Node.prototype = {
     draw: function (in_ctx) {
         in_ctx.strokeStyle = "#333333";
-        in_ctx.fillStyle = "#a0a0a0";
+        switch (this.type) {
+            case "scalar":
+                in_ctx.fillStyle = "#a06000";
+                break;
+
+            default:
+                in_ctx.fillStyle = "#a0a0a0";
+                break;
+        }
         in_ctx.fillRoundRect(this.x, this.y, this.w, this.h, 16);
         in_ctx.stroke();
 
@@ -701,11 +710,22 @@ Node.prototype = {
 
 Node.addTraits(Renderable, Pressable);
 
+function getTimeNode() {
+    var node = new Node(128, 64, [{dir:"out", label:"time", type:"[x,y,4]"}]);
+    node.label = "Time (s) mod 1";
+    node.type = "scalar";
+    node.compute = function() {
+        return (Date.now() % 1000) / 1000;
+    };
+
+    return node;
+}
+
 function getSliderNode() {
     var node = new Node(128, 64, [{dir:"out", label:"val", type:"[x,y,4]"}]);
 
-
     node.label = "Slider";
+    node.type = "scalar";
 
     node.slider = {
         val: 0.1,
@@ -1167,12 +1187,17 @@ renderableObjects.push(getMaxNode());
 renderableObjects.push(getMinNode());
 renderableObjects.push(getMuxNode());
 renderableObjects.push(getSliderNode());
+renderableObjects.push(getTimeNode());
 
-function darken(A, val) {
+renderableObjects.push(getNewNode(function translate(A, x, y) {
+    var tx = (this.thread.x + x * this.dimensions.x) % this.dimensions.x;
+    var ty = (this.thread.y + y * this.dimensions.y) % this.dimensions.y;
+    return A[this.thread.z][Math.floor(0.5 + ty)][Math.floor(0.5 + tx)];
+}));
+
+renderableObjects.push(getNewNode(function darken(A, val) {
     return val*A[this.thread.z][this.thread.y][this.thread.x];
-};
-
-renderableObjects.push(getNewNode(darken));
+}));
 
 renderableObjects.push(getNewNode(function twotone(A) {
     return Math.floor(0.5 + Math.sign(A[this.thread.z][this.thread.y][this.thread.x] - 0.5)/2 + 0.5 )
