@@ -701,6 +701,62 @@ Node.prototype = {
 
 Node.addTraits(Renderable, Pressable);
 
+function getSliderNode() {
+    var node = new Node(128, 64, [{dir:"out", label:"val", type:"[x,y,4]"}]);
+
+
+    node.label = "Slider";
+
+    node.slider = {
+        val: 0.1,
+
+        getValue: function() {
+            return this.val;
+        }
+    }
+
+    node.compute = function() {
+        return this.slider.getValue();
+    };
+
+    node.isOver = function(pos) {
+        var ret = this.hitbox.inBounds(pos);
+        if (ret) {
+            var t = pos[0] - this.x;
+            var ts = t / this.w
+            this.slider.val = ts;
+        }
+
+        return ret;
+    }
+
+    node.draw = function(ctx) {
+        Node.prototype.draw.call(this, ctx);
+        ctx.fillStyle = "#666666";
+        ctx.fillRoundRect(this.x + 7, this.y + this.h / 2, this.w - 14, 6, 3);
+        ctx.fillStyle = "#aaaaaa";
+        ctx.fillRoundRect(this.x + 8, this.y + this.h / 2 + 1, this.slider.getValue()*(this.w - 16), 4, 2);
+    }
+
+    return node;
+}
+
+function getNewNode(fn, x, y) {
+    var pins = [{dir:"out", label:"Out", type:"[x,y,4]"}];
+    for (var i=0; i<fn.length; i++) {
+        pins.push({dir:"in", label:"In", type:"[x,y,4]"})
+    }
+    var node = new Node(64, 32 + 32 * fn.length, pins);
+    node.setPos([x||0, y||0]);
+    node.label = fn.name;
+    node.kern = gpu.createKernel(fn)
+        .mode(renderMode)
+        .dimensions([400, 400, 3])
+        .outputToTexture(true)
+        .graphical(false);
+    return node;
+}
+
 function getNewDisplayNode() {
     var node = new Node(64, 64, [{dir:"in", label:"A", type:"[x,y,4]"}]);
     node.setPos([500, 100]);
@@ -1014,7 +1070,7 @@ var avg = gpu.createKernel(function(A, B) {
     return (A[this.thread.z][this.thread.y][this.thread.x] +
             B[this.thread.z][this.thread.y][this.thread.x]) / 2;
 }).mode(renderMode)
-    .dimensions([400, 400])
+    .dimensions([400, 400, 3])
     .outputToTexture(true)
     .graphical(false);
 
@@ -1110,10 +1166,22 @@ renderableObjects.push(getAverageNode());
 renderableObjects.push(getMaxNode());
 renderableObjects.push(getMinNode());
 renderableObjects.push(getMuxNode());
+renderableObjects.push(getSliderNode());
+
+function darken(A, val) {
+    return val*A[this.thread.z][this.thread.y][this.thread.x];
+};
+
+renderableObjects.push(getNewNode(darken));
+
+renderableObjects.push(getNewNode(function twotone(A) {
+    return Math.floor(0.5 + Math.sign(A[this.thread.z][this.thread.y][this.thread.x] - 0.5)/2 + 0.5 )
+}));
+
 
 function showNewImage() {
     displayNode.compute();
     //show(avg(grad(), grad()));
 }
 
-window.setInterval(showNewImage, 500);
+window.setInterval(showNewImage, 20);

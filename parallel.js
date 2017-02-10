@@ -36,7 +36,7 @@ setInterval( function() {
     generation = 0;
 }, 1000);
 
-var mode = "cpu";
+var mode = "gpu";
 
 // Input dimensions
 var xsize = 256;
@@ -190,5 +190,6 @@ var Y;
 //pingpong();
 //show(pong(r));
 
-//test()
+//test();
+//console.log("parallel loaded");
 

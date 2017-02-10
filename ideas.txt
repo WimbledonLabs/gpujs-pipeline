@@ -1,5 +1,9 @@
-Implemented (Not-integrated):
-- Colour-cycle
+Todo:
+- On-Node controls
+    - Sliders
+    - Levels
+- Type Checking / Type propagation
+    - Static caching
 
 Filters:
 - Kernels:
@@ -55,7 +59,8 @@ Random:
     - N-body boids
     - Noise removal
     - Pattern search
-    - Fourier transform
+    - Fourier transform FFT
+    - Levels / Curves (like in photoshop)
     - Wave sources
     - Texture warp
 
