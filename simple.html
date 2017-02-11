@@ -41,9 +41,12 @@ body {
          <span id="grid_coords">(0, 0)</span>
          <div id="grid_fn"></div>
         <canvas id="plan"></canvas>
+    <input type="file" id="input" onchange="handleFiles(this.files)">
+    <input type="button" value="Compute Thumbnails" onclick="computeThumbnails()" />
+    <br />
         <!-- This is the most literal clipboard I've ever programmed...
              used to store pixel data when loading an image into a matrix -->
-        <canvas id="clipboard" width="1000" height="1000" style="display: none;"></canvas>
+        <canvas id="clipboard" width="600" height="600" style="display: none;"></canvas>
         <!-- <div id="debug"></div> -->
 
 <!--    <canvas id="scaled" width="512" height="512">
@@ -53,6 +56,6 @@ body {
 <script src="orig/js/gpu.js?nocache"></script>
     <script src="parallel.js?nocache"></script>
     <script src="ui.js?nocache"></script>
-    <img id="backimage" src="images/face.jpg" onload="loadImage(this)" width="400" height="400">
+    <!--    <img id="backimage" src="images/face.jpg" onload="loadImage(this)" width="400" height="400"> -->
     </body>
 </html>

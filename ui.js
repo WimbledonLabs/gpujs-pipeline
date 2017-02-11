@@ -40,45 +40,63 @@ Array.prototype.remove = function(obj) {
 
 
 // .===========================================================================
-// | Global Variables
+// | Canvas Prototype Functions
 // '===========================================================================
 
-var canvas = document.getElementById("plan");
-var context = canvas.getContext('2d');
+CanvasRenderingContext2D.prototype.fillTri = function (x, y, s, a) {
+    if (a === undefined) a = Math.PI / 6 * 3;
 
-var renderableObjects = [];
+    var h = Math.sqrt(3)/2 * s;
 
-var pan_x = 0;
-var pan_y = 0;
+    var v0 = [-s/2,   h/3];
+    var v1 = [+s/2,   h/3];
+    var v2 = [0,   -2*h/3];
 
-var scale_x = 1.0;
-var scale_y = 1.0;
+    v0 = translate(rotate(v0, a), x, y);
+    v1 = translate(rotate(v1, a), x, y);
+    v2 = translate(rotate(v2, a), x, y);
 
-var renderMode = "gpu";
+    this.fillPoly([v0, v1, v2]);
+}
 
-var functionList = [
-    ["Image", getImgNode],
-    ["circle", nodeType(circle)],
-    ["grad", nodeType(grad)],
-    ["avg", nodeType(avg)],
-    ["maxk", nodeType(maxk)],
-    ["mink", nodeType(mink)],
-    ["mux", nodeType(mux)],
-    ["Two Tone", nodeType(function twotone(A) {
-        return Math.floor(0.5 + Math.sign(A[this.thread.z][this.thread.y][this.thread.x] - 0.5)/2 + 0.5 )
-    })],
-    ["Brightness", nodeType(function darken(A, val) {
-        return val*A[this.thread.z][this.thread.y][this.thread.x];
-    })],
-    ["Translate", nodeType(function translate(A, x, y) {
-        var tx = (this.thread.x + x * this.dimensions.x) % this.dimensions.x;
-        var ty = (this.thread.y + y * this.dimensions.y) % this.dimensions.y;
-        return A[this.thread.z][Math.floor(0.5 + ty)][Math.floor(0.5 + tx)];
-    })],
-    ["Slider", getSliderNode],
-    ["Time", getTimeNode],
-    ["", nodeType()],
-];
+CanvasRenderingContext2D.prototype.fillPoly = function (vertices) {
+    if (vertices.length < 3) {
+        throw "Must have at least 3 vertices";
+    }
+
+    this.moveTo(vertices[0], vertices[1]);
+    this.beginPath();
+    for (var i=0; i< vertices.length; i++) {
+        this.lineTo(vertices[i][0], vertices[i][1]);
+    }
+    this.closePath();
+    this.fill();
+}
+
+CanvasRenderingContext2D.prototype.fillRoundRect = function (x, y, w, h, r) {
+    // Start at top left just below the curve
+    this.moveTo(x, y - r);
+    this.beginPath();
+    this.lineTo(x, y + h - r);
+    this.quadraticCurveTo(x,     y + h, 
+                          x + r, y + h);
+
+    this.lineTo(x + w - r, y + h);
+    this.quadraticCurveTo(x + w, y + h,
+                          x + w, y + h - r);
+
+    this.lineTo(x + w, y + r);
+    this.quadraticCurveTo(x + w,     y,
+                          x + w - r, y);
+
+    this.lineTo(x + r, y);
+    this.quadraticCurveTo(x, y,
+                          x, y + r);
+
+    this.closePath();
+    this.fill();
+
+}
 
 
 // .===========================================================================
@@ -121,6 +139,193 @@ var Pinnable = {
 
 
 // .===========================================================================
+// | Global Variables
+// '===========================================================================
+
+var canvas = document.getElementById("plan");
+var context = canvas.getContext('2d');
+
+var renderableObjects = [];
+
+var pan_x = 0;
+var pan_y = 0;
+
+var scale_x = 1.0;
+var scale_y = 1.0;
+
+var renderMode = "gpu";
+
+var functionList = [
+    ["Image", getImgNode],
+
+    // Multi-channel source function nodes
+    ["circle", nodeType(circle)],
+    ["grad", nodeType(grad)],
+
+    // General purpose multi-channel tranformation nodes
+    ["Edge", nodeType(edgeHA)],
+    ["Convolution", nodeType(conv)],
+    ["C3", nodeType(conv3)],
+    ["avg", nodeType(avg)],
+    ["maxk", nodeType(maxk)],
+    ["mink", nodeType(mink)],
+    ["mux", nodeType(mux)],
+    ["Two Tone", nodeType(function twotone(A) {
+        return Math.floor(1 + Math.sign(A[this.thread.z][this.thread.y][this.thread.x] - 0.5)/2)
+    })],
+    ["Brightness", nodeType(function brightness(A, val) {
+        return val*2*A[this.thread.z][this.thread.y][this.thread.x];
+    })],
+    ["Translate", nodeType(function translate(A, x, y) {
+        var tx = (this.thread.x + x * this.dimensions.x) % this.dimensions.x;
+        var ty = (this.thread.y + y * this.dimensions.y) % this.dimensions.y;
+        return A[this.thread.z][Math.floor(ty)][Math.floor(tx)];
+    })],
+
+    // Scalar nodes
+    ["Kernel", getKernNode(
+            [[0,  1, 0],
+             [1, -4, 1],
+             [0,  1, 0]]
+    )],
+    ["Slider", getSliderNode],
+    ["Time", getTimeNode],
+    ["", nodeType()],
+];
+
+
+// .===========================================================================
+// | Node Functions
+// '===========================================================================
+
+function conv3(A, k) {
+    if (this.thread.y > 0 && this.thread.y < this.dimensions.y - 2 &&
+            this.thread.x > 0 && this.thread.x < this.dimensions.x - 2) {
+        var sum = 0;
+
+        for (var y=-1; y<2; y++) {
+            for (var x=-1; x<2; x++) {
+                sum += A[this.thread.z][this.thread.y + y][this.thread.x + x] *
+                        k[1 + y][1 + x];
+            }
+        }
+
+        return sum;
+    } else {
+        return A[this.thread.z][this.thread.y][this.thread.x];
+    }
+}
+
+function conv(A, k) {
+    if (this.thread.y > 0 && this.thread.y < this.dimensions.y - 2 &&
+            this.thread.x > 0 && this.thread.x < this.dimensions.x - 2) {
+        var c =
+            // Bottom Left
+            A[this.thread.z][this.thread.y - 1][this.thread.x - 1] *
+            k[0][0] +
+
+            // Bottom Middle
+            A[this.thread.z][this.thread.y - 1][this.thread.x] *
+            k[0][1] +
+
+            // Bottom Right
+            A[this.thread.z][this.thread.y - 1][this.thread.x + 1] *
+            k[0][2] +
+
+            // Middle Left
+            A[this.thread.z][this.thread.y][this.thread.x - 1] *
+            k[1][0] +
+
+            // Middle Middle
+            A[this.thread.z][this.thread.y][this.thread.x] *
+            k[1][1] +
+
+            // Middle Right
+            A[this.thread.z][this.thread.y][this.thread.x + 1] *
+            k[1][2] +
+
+            // Top Left
+            A[this.thread.z][this.thread.y + 1][this.thread.x - 1] *
+            k[2][0] +
+
+            // Top Middle
+            A[this.thread.z][this.thread.y + 1][this.thread.x] *
+            k[2][1] +
+
+            // Top Right
+            A[this.thread.z][this.thread.y + 1][this.thread.x + 1] *
+            k[2][2];
+
+        return c;
+    } else {
+        return A[this.thread.z][this.thread.y][this.thread.x];
+    }
+}
+
+function edgeHA(A) {
+    if (this.thread.y > 0 && this.thread.y < this.dimensions.y - 2 &&
+            this.thread.x > 0 && this.thread.x < this.dimensions.x - 2) {
+        var c =
+            A[this.thread.z][this.thread.y - 1][this.thread.x - 1]*-1 +
+            A[this.thread.z][this.thread.y    ][this.thread.x - 1]*-2 +
+            A[this.thread.z][this.thread.y + 1][this.thread.x - 1]*-1 +
+
+            A[this.thread.z][this.thread.y - 1][this.thread.x + 1]    +
+            A[this.thread.z][this.thread.y    ][this.thread.x + 1]*2  +
+            A[this.thread.z][this.thread.y + 1][this.thread.x + 1];
+
+        var d =
+            A[this.thread.z][this.thread.y - 1][this.thread.x - 1]*-1 +
+            A[this.thread.z][this.thread.y - 1][this.thread.x    ]*-2 +
+            A[this.thread.z][this.thread.y - 1][this.thread.x + 1]*-1 +
+
+            A[this.thread.z][this.thread.y + 1][this.thread.x + 1]    +
+            A[this.thread.z][this.thread.y + 1][this.thread.x    ]*2  +
+            A[this.thread.z][this.thread.y + 1][this.thread.x + 1];
+
+        return (c+d)+1 / 2;
+    } else {
+        return A[this.thread.z][this.thread.y][this.thread.x];
+    }
+}
+
+function avg(A, B) {
+    return (A[this.thread.z][this.thread.y][this.thread.x] +
+            B[this.thread.z][this.thread.y][this.thread.x]) / 2;
+}
+function mux(A, B, C) {
+    if (this.thread.z == 0) {
+        return A[this.thread.y][this.thread.x];
+    } else if (this.thread.z == 1) {
+        return B[this.thread.y][this.thread.x];
+    } else if (this.thread.z == 2) {
+        return C[this.thread.y][this.thread.x];
+    }
+}
+
+function maxk(A, B) {
+    return Math.max(A[this.thread.z][this.thread.y][this.thread.x],
+                    B[this.thread.z][this.thread.y][this.thread.x]);
+}
+
+function mink(A, B) {
+    return Math.min(A[this.thread.z][this.thread.y][this.thread.x],
+                    B[this.thread.z][this.thread.y][this.thread.x]);
+}
+
+function grad() {
+    return this.thread.x / 400;
+}
+
+function circle() {
+    var sx = (this.thread.x - 200) / 160;
+    var sy = (this.thread.y - 200) / 160;
+    var c = Math.min(1.0, Math.sqrt(sx*sx + sy*sy));
+    return c;
+}
+
+
+// .===========================================================================
 // | Mouse State Managers
 // '===========================================================================
 
@@ -151,12 +356,64 @@ var MouseStateManager = {
     }
 }
 
+function DefaultMouseStateManager() {
+    this.isMouseDown = false;
+}
+
+DefaultMouseStateManager.prototype = {
+    mousedown: function(e) {
+        if (e.button != 0) {
+            // Ignore non-left clicks
+            return;
+        }
+
+        var grid_coord = screen_to_grid_coords([e.layerX, e.layerY]);
+
+        // Try to find an object to take over the mouse interaction
+        for (var i=0; i<renderableObjects.length; i++) {
+            var obj = renderableObjects[i];
+            if (obj.isPressable && obj.isOver(grid_coord)) {
+                mouseStateManager = renderableObjects[i].press(e);
+                return;
+            }
+        }
+
+        // Using default scene panning behaviour
+        this.isMouseDown = true;
+    },
+    mousemove: function(e) {
+        var grid_coord = screen_to_grid_coords([e.layerX, e.layerY]);
+        for (var i=0; i<renderableObjects.length; i++) {
+            var obj = renderableObjects[i];
+            if (obj.isPressable) {
+                obj.isOver(grid_coord);
+            }
+        }
+
+        // Adjust global canvas pan
+        if (this.isMouseDown) {
+            pan_x += e.movementX;
+            pan_y += e.movementY;
+        }
+
+        redraw();
+    },
+    mouseup: function(e) {
+        this.isMouseDown = false;
+    }
+};
+
+DefaultMouseStateManager.addTraits(MouseStateManager);
+
+var defaultMouseStateManager = new DefaultMouseStateManager();
+mouseStateManager = defaultMouseStateManager;
+
 function ContextMenuStateManager(event) {
     var g = screen_to_grid_coords([event.layerX, event.layerY]);
     this.x = g[0];
     this.y = g[1];
     this.w = 100;
-    this.h = 200;
+    this.h = 300;
     renderableObjects.push(this);
 
     this.mousePos = g;
@@ -334,59 +591,6 @@ EdgePointStateManager.addTraits(DragMouseStateManager.prototype, {
         this.firstPress = false;
     },
 });
-
-function DefaultMouseStateManager() {
-    this.isMouseDown = false;
-}
-
-DefaultMouseStateManager.prototype = {
-    mousedown: function(e) {
-        if (e.button != 0) {
-            // Ignore non-left clicks
-            return;
-        }
-
-        var grid_coord = screen_to_grid_coords([e.layerX, e.layerY]);
-
-        // Try to find an object to take over the mouse interaction
-        for (var i=0; i<renderableObjects.length; i++) {
-            var obj = renderableObjects[i];
-            if (obj.isPressable && obj.isOver(grid_coord)) {
-                mouseStateManager = renderableObjects[i].press(e);
-                return;
-            }
-        }
-
-        // Using default scene panning behaviour
-        this.isMouseDown = true;
-    },
-    mousemove: function(e) {
-        var grid_coord = screen_to_grid_coords([e.layerX, e.layerY]);
-        for (var i=0; i<renderableObjects.length; i++) {
-            var obj = renderableObjects[i];
-            if (obj.isPressable) {
-                obj.isOver(grid_coord);
-            }
-        }
-
-        // Adjust global canvas pan
-        if (this.isMouseDown) {
-            pan_x += e.movementX;
-            pan_y += e.movementY;
-        }
-
-        redraw();
-    },
-    mouseup: function(e) {
-        this.isMouseDown = false;
-    }
-};
-
-DefaultMouseStateManager.addTraits(MouseStateManager);
-
-var defaultMouseStateManager = new DefaultMouseStateManager();
-mouseStateManager = defaultMouseStateManager;
-
 
 // .===========================================================================
 // | Helper Functions
@@ -683,15 +887,10 @@ Edge.prototype = {
 
 Edge.addTraits(Renderable);
 
-
-
 // 2017/02/07 19:56 SGT
 // How do I make the pipeline generic over array sizes :(
 
-/*
-
-pinDesc is a list of POJO's like so:
-
+/*pinDesc is a list of POJO's like so:
 [
     {dir:"in", label:"A", type:"[x,y,4]"},
     {dir:"in", label:"B", type:"[x,y,4]"},
@@ -708,9 +907,12 @@ function Node(w, h, pinDesc) {
     this.label = "No Label Given";
     this.type = "default";
 
-//function NodePin(node, dir, label, type, offsetX, offsetY) {
-
     this.hitbox = new Hitbox(this.x, this.y, this.w, this.h);
+
+    this.img = new Image();
+    this.img.src = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAY" +
+        "AAABzenr0AAAAPElEQVRYw+3VwQkAMRACQA3Xf8ubIvYRDsa/MODDJpksMrOq5+RxAAA" +
+        "AAAAAAL7tn7c1AQAAAAAAwL8BF8kBBz58YT50AAAAAElFTkSuQmCC";
 
     this.pins = {};
     this.pins["out"] = [];
@@ -752,11 +954,11 @@ Node.prototype = {
 
         in_ctx.fillStyle = "#000000";
         in_ctx.fillText(this.label, this.x + 8, this.y + 15);
-        //this.pins.forEach(function(dir) { this.pins[dir].forEach(function(pin) {pin.draw()}) } );
-        // ^How about the following instead?
 
-        // this.pins["in"].forEach(function(pin) {pin.draw(in_ctx)});
-        // this.pins["out"].forEach(function(pin) {pin.draw(in_ctx)});
+        var img_h = this.w - 24;
+        var img_w = img_h;
+        in_ctx.drawImage(this.img, this.x + 12,  this.y + this.h - img_h - 8,
+                                   this.w - 24, img_h);
     },
 
     setPos: function (pos) {
@@ -812,10 +1014,26 @@ Node.prototype = {
 
 Node.addTraits(Renderable, Pressable);
 
+function getKernNode(kern) {
+    var inner = function kernel() {
+        var node = new Node(64, 64, [{dir:"out", label:"kern", type:"[x,y,4]"}]);
+        node.label = "Kern";
+        node.type = "scalar";
+        node.compute = function() {
+            return kern;
+        };
+
+        return node;
+    }
+
+    return inner;
+}
+
 function getTimeNode() {
     var node = new Node(128, 64, [{dir:"out", label:"time", type:"[x,y,4]"}]);
     node.label = "Time (s) mod 1";
     node.type = "scalar";
+    node.img.src = "";
     node.compute = function() {
         return (Date.now() % 1000) / 1000;
     };
@@ -828,6 +1046,7 @@ function getSliderNode() {
 
     node.label = "Slider";
     node.type = "scalar";
+    node.img.src = "";
 
     node.slider = {
         val: 0.1,
@@ -891,6 +1110,7 @@ function getNewDisplayNode() {
     node.setPos([500, 100]);
     node.label = "Display";
     node.kern = show;
+    node.img.src = "";
     return node;
 }
 
@@ -903,66 +1123,6 @@ function getImgNode(imgArr) {
         return imgArr;
     }
     return node;
-}
-
-
-// .===========================================================================
-// | Canvas Prototype Functions
-// '===========================================================================
-
-CanvasRenderingContext2D.prototype.fillTri = function (x, y, s, a) {
-    if (a === undefined) a = Math.PI / 6 * 3;
-
-    var h = Math.sqrt(3)/2 * s;
-
-    var v0 = [-s/2,   h/3];
-    var v1 = [+s/2,   h/3];
-    var v2 = [0,   -2*h/3];
-
-    v0 = translate(rotate(v0, a), x, y);
-    v1 = translate(rotate(v1, a), x, y);
-    v2 = translate(rotate(v2, a), x, y);
-
-    this.fillPoly([v0, v1, v2]);
-}
-
-CanvasRenderingContext2D.prototype.fillPoly = function (vertices) {
-    if (vertices.length < 3) {
-        throw "Must have at least 3 vertices";
-    }
-
-    this.moveTo(vertices[0], vertices[1]);
-    this.beginPath();
-    for (var i=0; i< vertices.length; i++) {
-        this.lineTo(vertices[i][0], vertices[i][1]);
-    }
-    this.closePath();
-    this.fill();
-}
-
-CanvasRenderingContext2D.prototype.fillRoundRect = function (x, y, w, h, r) {
-    // Start at top left just below the curve
-    this.moveTo(x, y - r);
-    this.beginPath();
-    this.lineTo(x, y + h - r);
-    this.quadraticCurveTo(x,     y + h, 
-                          x + r, y + h);
-
-    this.lineTo(x + w - r, y + h);
-    this.quadraticCurveTo(x + w, y + h,
-                          x + w, y + h - r);
-
-    this.lineTo(x + w, y + r);
-    this.quadraticCurveTo(x + w,     y,
-                          x + w - r, y);
-
-    this.lineTo(x + r, y);
-    this.quadraticCurveTo(x, y,
-                          x, y + r);
-
-    this.closePath();
-    this.fill();
-
 }
 
 
@@ -1036,6 +1196,8 @@ function loadImage(imageElement) {
     //var imag = document.getElementById("backimage");
     var clipboardCtx = document.getElementById("clipboard").getContext('2d');
     clipboardCtx.drawImage(imag, 0, 0, 400, 400);
+
+    // Why do this next line?
     imag.style.display = 'none';
 
     var imageData = clipboardCtx.getImageData(0, 0, 400, 400);
@@ -1107,17 +1269,48 @@ function add_edge(event) {
     redraw();
 }
 
+function bgImgLoaded() {
+    bg_loaded = true;
+    redraw();
+}
+
+/* Method body from the following link:
+ * http://stackoverflow.com/questions/10906734/how-to-upload-image-into-html5-canvas
+ *
+ * This is the standard way to read uploaded files.
+ * */
+function handleFiles(files) {
+    var reader = new FileReader();
+    reader.onload = function(event){
+        var img = new Image();
+        img.onload = function(){
+            loadImage(img);
+        }
+        img.src = event.target.result;
+    }
+    reader.readAsDataURL(files[0]);
+}
+
+function computeThumbnails() {
+    for (var i=0; i<renderableObjects.length; i++) {
+        var obj = renderableObjects[i];
+        if (!(obj instanceof Node) ||
+                obj === displayNode ||
+                obj.type == "scalar") {
+            continue;
+        }
+
+        console.log("Computing thumbnail for " + obj.label + " type: " + obj.type);
+        show(obj.compute());
+        obj.img.src = resultCanvas.toDataURL();
+    }
+}
+
 // .===========================================================================
 // | Application Variables
 // '===========================================================================
 
-var bg_loaded = false;
-
-
-// .===========================================================================
-// | Initialization
-// '===========================================================================
-
+// Create the kernel which actually draws to the screen
 var show = gpu.createKernel(function(A) {
     this.color(A[0][this.thread.y][this.thread.x],
                A[1][this.thread.y][this.thread.x],
@@ -1126,54 +1319,19 @@ var show = gpu.createKernel(function(A) {
     .dimensions([400, 400])
     .graphical(true);
 
-function avg(A, B) {
-    return (A[this.thread.z][this.thread.y][this.thread.x] +
-            B[this.thread.z][this.thread.y][this.thread.x]) / 2;
-}
-function mux(A, B, C) {
-    if (this.thread.z == 0) {
-        return A[this.thread.y][this.thread.x];
-    } else if (this.thread.z == 1) {
-        return B[this.thread.y][this.thread.x];
-    } else if (this.thread.z == 2) {
-        return C[this.thread.y][this.thread.x];
-    }
-}
-
-function maxk(A, B) {
-    return Math.max(A[this.thread.z][this.thread.y][this.thread.x],
-                    B[this.thread.z][this.thread.y][this.thread.x]);
-}
-
-function mink(A, B) {
-    return Math.min(A[this.thread.z][this.thread.y][this.thread.x],
-                    B[this.thread.z][this.thread.y][this.thread.x]);
-}
-
-function grad() {
-    return this.thread.x / 400;
-}
-
-function circle() {
-    var sx = (this.thread.x - 200) / 160;
-    var sy = (this.thread.y - 200) / 160;
-    var c = Math.min(1.0, Math.sqrt(sx*sx + sy*sy));
-    return c;
-}
-
-var resultCanvas = show.getCanvas();
-document.getElementsByTagName('body')[0].appendChild(resultCanvas);
-
-//show.apply(undefined, [avg.apply(undefined, [circle(), grad()])]);
-//show(grad());
-
+var bg_loaded = false;
 var bg_tile = new Image();
-bg_tile.onload = function () {
-    bg_loaded = true;
-    redraw();
-};
+bg_tile.crossOrigin = 'anonymous';
+bg_tile.onload = bgImgLoaded;
+//bg_tile.src = "grid_bg.png";
+bg_tile.src = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABz" +
+"enr0AAAAQklEQVRYw+3VsQkAMQwDQCf8VJ7W03it/BAuQuDUCw5UaFXViUG6e1KPHZcDAAAAAAAA" +
+"8E3/PDNNAAAAAAAA8DbgBz5jCHOrWGXXAAAAAElFTkSuQmCC";
 
-bg_tile.src = "grid_bg.png";
+
+// .===========================================================================
+// | Initialization
+// '===========================================================================
 
 canvas.addEventListener("mousedown", delegateToMouseStateManager, false);
 window.addEventListener("mouseup", delegateToMouseStateManager, false);
@@ -1182,17 +1340,25 @@ window.addEventListener("mousemove", delegateToMouseStateManager, false);
 canvas.addEventListener("mousewheel", scale_up, false);
 canvas.addEventListener("contextmenu", add_square, false);
 
-window.setInterval(function () {
-    recomputeCanvasSize();
-}, 500);
+var resultCanvas = show.getCanvas();
+document.getElementsByTagName('body')[0].appendChild(resultCanvas);
 
-//    {dir:"in", label:"A", type:"[x,y,4]"},
-
+// Add the display node to the canvas, an image node is also added be default
+// loadImage is called by the page body's onload property
 var displayNode = getNewDisplayNode();
 renderableObjects.push(displayNode);
 
-function showNewImage() {
-    displayNode.compute();
-}
+var showNewImage = function() { displayNode.compute(); }
 
 window.setInterval(showNewImage, 20);
+window.setInterval(recomputeCanvasSize, 500);
+
+
+
+
+
+
+
+
+
+
