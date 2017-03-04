@@ -156,26 +156,36 @@ var scale_y = 1.0;
 var renderMode = "gpu";
 
 var functionList = [
-    ["Image", getImgNode],
-
     // Multi-channel source function nodes
-    ["circle", nodeType(circle)],
-    ["grad", nodeType(grad)],
+    ["Circle", nodeType(circle)],
+    ["Linear Gradient", nodeType(grad)],
+    ["Colour", nodeType(function colour(r, g, b) {
+        if (this.thread.z == 0) {
+            return r;
+        } else if (this.thread.z == 1) {
+            return g;
+        } else {
+            return b
+        }
+    })],
 
     // General purpose multi-channel tranformation nodes
-    ["Edge", nodeType(edgeHA)],
     ["Convolution", nodeType(conv)],
-    ["C3", nodeType(conv3)],
-    ["avg", nodeType(avg)],
+    ["Average", nodeType(avg)],
     ["Mask", nodeType(mask)],
     ["Warp", nodeType(uvWarp)],
-    ["maxk", nodeType(maxk)],
-    ["mink", nodeType(mink)],
-    ["mux", nodeType(mux)],
-    ["Two Tone", nodeType(function twotone(A) {
-        return Math.floor(1 + Math.sign(A[this.thread.z][this.thread.y][this.thread.x] - 0.5)/2)
+    ["Max", nodeType(maxk)],
+    ["Min", nodeType(mink)],
+    ["Add", nodeType(add)],
+    ["Subtract", nodeType(sub)],
+    ["Multiply", nodeType(mul)],
+    ["Divide", nodeType(div)],
+    ["Threshold", nodeType(function threshold(A, val) {
+        return Math.floor(1 + Math.sign(A[this.thread.z][this.thread.y][this.thread.x] - val)/2)
     })],
     ["Brightness", nodeType(function brightness(A, val) {
+        // Faster than a multiply with a colour. 160 fps for 4 in a row vs.
+        // 90 fps with 4 in a row
         return val*2*A[this.thread.z][this.thread.y][this.thread.x];
     })],
     ["Translate", nodeType(function translate(A, x, y) {
@@ -186,10 +196,12 @@ var functionList = [
 
     // Scalar nodes
     ["Kernel", getKernNode(
-            [[0,  1, 0],
-             [1, -4, 1],
-             [0,  1, 0]]
+            [[1,  0, -1],
+             [2,  0, -2],
+             [1,  0, -1]]
     )],
+    ["SobelH", getKernNode([[ 1,  0, -1], [2,  0, -2], [0, 0, 0]])],
+    ["SobelV", getKernNode([[-1, -2, -1], [0,  0,  0], [1, 2, 1]])],
     ["Slider", getSliderNode],
     ["Time", getTimeNode],
     ["", nodeType()],
@@ -200,7 +212,7 @@ var functionList = [
 // | Node Functions
 // '===========================================================================
 
-function conv3(A, k) {
+function conv(A, k) {
     if (this.thread.y > 0 && this.thread.y < this.dimensions.y - 2 &&
             this.thread.x > 0 && this.thread.x < this.dimensions.x - 2) {
         var sum = 0;
@@ -213,79 +225,6 @@ function conv3(A, k) {
         }
 
         return sum;
-    } else {
-        return A[this.thread.z][this.thread.y][this.thread.x];
-    }
-}
-
-function conv(A, k) {
-    if (this.thread.y > 0 && this.thread.y < this.dimensions.y - 2 &&
-            this.thread.x > 0 && this.thread.x < this.dimensions.x - 2) {
-        var c =
-            // Bottom Left
-            A[this.thread.z][this.thread.y - 1][this.thread.x - 1] *
-            k[0][0] +
-
-            // Bottom Middle
-            A[this.thread.z][this.thread.y - 1][this.thread.x] *
-            k[0][1] +
-
-            // Bottom Right
-            A[this.thread.z][this.thread.y - 1][this.thread.x + 1] *
-            k[0][2] +
-
-            // Middle Left
-            A[this.thread.z][this.thread.y][this.thread.x - 1] *
-            k[1][0] +
-
-            // Middle Middle
-            A[this.thread.z][this.thread.y][this.thread.x] *
-            k[1][1] +
-
-            // Middle Right
-            A[this.thread.z][this.thread.y][this.thread.x + 1] *
-            k[1][2] +
-
-            // Top Left
-            A[this.thread.z][this.thread.y + 1][this.thread.x - 1] *
-            k[2][0] +
-
-            // Top Middle
-            A[this.thread.z][this.thread.y + 1][this.thread.x] *
-            k[2][1] +
-
-            // Top Right
-            A[this.thread.z][this.thread.y + 1][this.thread.x + 1] *
-            k[2][2];
-
-        return c;
-    } else {
-        return A[this.thread.z][this.thread.y][this.thread.x];
-    }
-}
-
-function edgeHA(A) {
-    if (this.thread.y > 0 && this.thread.y < this.dimensions.y - 2 &&
-            this.thread.x > 0 && this.thread.x < this.dimensions.x - 2) {
-        var c =
-            A[this.thread.z][this.thread.y - 1][this.thread.x - 1]*-1 +
-            A[this.thread.z][this.thread.y    ][this.thread.x - 1]*-2 +
-            A[this.thread.z][this.thread.y + 1][this.thread.x - 1]*-1 +
-
-            A[this.thread.z][this.thread.y - 1][this.thread.x + 1]    +
-            A[this.thread.z][this.thread.y    ][this.thread.x + 1]*2  +
-            A[this.thread.z][this.thread.y + 1][this.thread.x + 1];
-
-        var d =
-            A[this.thread.z][this.thread.y - 1][this.thread.x - 1]*-1 +
-            A[this.thread.z][this.thread.y - 1][this.thread.x    ]*-2 +
-            A[this.thread.z][this.thread.y - 1][this.thread.x + 1]*-1 +
-
-            A[this.thread.z][this.thread.y + 1][this.thread.x + 1]    +
-            A[this.thread.z][this.thread.y + 1][this.thread.x    ]*2  +
-            A[this.thread.z][this.thread.y + 1][this.thread.x + 1];
-
-        return (c+d)+1 / 2;
     } else {
         return A[this.thread.z][this.thread.y][this.thread.x];
     }
@@ -309,14 +248,24 @@ function mask(A,B, mask) {
             (1-m) * B[this.thread.z][this.thread.y][this.thread.x]);
 }
 
-function mux(A, B, C) {
-    if (this.thread.z == 0) {
-        return A[this.thread.y][this.thread.x];
-    } else if (this.thread.z == 1) {
-        return B[this.thread.y][this.thread.x];
-    } else if (this.thread.z == 2) {
-        return C[this.thread.y][this.thread.x];
-    }
+function sub(A, B) {
+    return A[this.thread.z][this.thread.y][this.thread.x] -
+           B[this.thread.z][this.thread.y][this.thread.x];
+}
+
+function div(A, B) {
+    return A[this.thread.z][this.thread.y][this.thread.x] /
+           B[this.thread.z][this.thread.y][this.thread.x];
+}
+
+function mul(A, B) {
+    return A[this.thread.z][this.thread.y][this.thread.x] +
+           B[this.thread.z][this.thread.y][this.thread.x];
+}
+
+function add(A, B) {
+    return A[this.thread.z][this.thread.y][this.thread.x] +
+           B[this.thread.z][this.thread.y][this.thread.x];
 }
 
 function maxk(A, B) {
@@ -1035,6 +984,8 @@ function getKernNode(kern) {
         var node = new Node(64, 64, [{dir:"out", label:"kern", type:"[x,y,4]"}]);
         node.label = "Kern";
         node.type = "scalar";
+        node.img.src = "";
+
         node.compute = function() {
             return kern;
         };
