@@ -2204,8 +2204,9 @@ var GPUUtils = (function() {
 			'floatOutput': true,
 			'floatOutputForce': true
 		}).dimensions([2])();
-		
-		return x[0] == 1;
+
+        test_floatReadPixels_memoizer = (x[0] == 1);
+        return test_floatReadPixels_memoizer;
 	}
 	GPUUtils.test_floatReadPixels = test_floatReadPixels;
 	
@@ -2408,6 +2409,7 @@ var GPUCore = (function() {
 
 		ret.mode = function(mode) {
 			opt.mode = mode;
+            console.log("returning kern with mode " + opt.mode);
 			return gpu.createKernel(
 				gpu._kernelFunction,
 				gpu._kernelParamObj
@@ -4139,7 +4141,8 @@ var functionBuilder = (function() {
 	}
 
 	function getProgramCacheKey(args, opt, outputDim) {
-		var key = '';
+		var key = '' + opt.dimensions;
+		//var key = '';
 		for (var i=0; i<args.length; i++) {
 			var argType = GPUUtils.getArgumentType(args[i]);
 			key += argType;
@@ -4197,11 +4200,16 @@ var functionBuilder = (function() {
 
 		var paramNames = GPUUtils.getParamNames_fromString(funcStr);
 
-		var programCache = [];
+		/*var programCache = [];
 		var programUniformLocationCache = [];
 		var bufferCache = [];
 		var textureCache = [];
-		var framebufferCache = [];
+		var framebufferCache = [];*/
+		var programCache = {};
+		var programUniformLocationCache = {};
+		var bufferCache = {};
+		var textureCache = {};
+		var framebufferCache = {};
 
 		var vertices = new Float32Array([
 			-1, -1,
@@ -4255,17 +4263,9 @@ var functionBuilder = (function() {
 				opt.floatOutput = true;
 			}
 
-            if (!opt.width) {
-                opt.width = opt.dimensions[0];
-            }
-
-            if (!opt.height) {
-                opt.height = opt.dimensions[1];
-            }
-
-			canvas.width = opt.width;
-			canvas.height = opt.height;
-			gl.viewport(0, 0, opt.width, opt.height);
+			canvas.width = texSize[0];
+			canvas.height = texSize[1];
+			gl.viewport(0, 0, texSize[0], texSize[1]);
 
 			var threadDim = GPUUtils.clone(opt.dimensions);
 			while (threadDim.length < 3) {
@@ -4675,6 +4675,7 @@ var functionBuilder = (function() {
 			var framebuffer = framebufferCache[programCacheKey];
 			if (!framebuffer) {
 				framebuffer = gl.createFramebuffer();
+                framebufferCache[programCacheKey] = framebuffer;
 			}
 			framebuffer.width = texSize[0];
 			framebuffer.height = texSize[1];
