@@ -5,22 +5,71 @@
 body {
     padding: 0px;
     margin: 0em;
+}
 
-    background-color: purple;
+.ui {
 
+    position: fixed;
+    z-index: 1;
+}
+
+.cpu {
+    left: 0px;
+    top: 100px;
+}
+
+.gpu {
+    left: 0px;
+    top: 500px;
+}
+
+span.gpu {
+    z-index: 2;
+}
+
+span.cpu {
+    z-index: 2;
+}
+
+#panel {
+    height: 100%;
+    width: 400px;
+
+    background-color: #333333;
+    border-right: 5px solid orange;
+}
+
+#toggleMode {
+    top: 30px;
+}
+
+#thumbnail {
+    top: 50px;
+}
+
+#file_input {
+    top: 70px;
 }
 
 #fps {
-    font-size: 2em;
+    font-size: 30px;
+    position: absolute;
+    color: yellow;
+    font-family: "monospace";
+
+    z-index: 1;
 }
 
 #plan {
-    width: 1920px;
-    height: 50%;
+    width: 100%;
+    height: 100%;
 
     overflow: hidden;
+    position: absolute;
     padding: 0px;
     margin: 0px;
+
+    z-index: 0;
 }
 
 #debug {
@@ -36,13 +85,15 @@ body {
 </style>
     </head>
     <body onload="recomputeCanvasSize()">
-        <span id="fps">0</span>
-         <span id="mouse_coords">(0, 0)</span>
-         <span id="grid_coords">(0, 0)</span>
+        <div class="ui" id="panel"> </div>
+        <span id="fps"></span>
+        <span class="ui cpu">CPU</span>
+        <span class="ui gpu">GPU</span>
+        <input class="ui" type="file"   id="file_input" onchange="handleFiles(this.files)">
+        <input class="ui" type="button" id="thumbnail" value="Compute Thumbnails" onclick="computeThumbnails()" />
+        <input class="ui" type="button" id="toggleMode" value="gpu Mode" onclick="toggleMode()" />
          <div id="grid_fn"></div>
         <canvas id="plan"></canvas>
-    <input type="file" id="input" onchange="handleFiles(this.files)">
-    <input type="button" value="Compute Thumbnails" onclick="computeThumbnails()" />
     <br />
         <!-- This is the most literal clipboard I've ever programmed...
              used to store pixel data when loading an image into a matrix -->
@@ -53,7 +104,7 @@ body {
     </canvas>
 -->
 
-<script src="orig/js/gpu.js?nocache"></script>
+<script src="js/gpu.js?nocache"></script>
     <script src="parallel.js?nocache"></script>
     <script src="ui.js?nocache"></script>
     <!--    <img id="backimage" src="images/face.jpg" onload="loadImage(this)" width="400" height="400"> -->

@@ -167,6 +167,8 @@ var functionList = [
     ["Convolution", nodeType(conv)],
     ["C3", nodeType(conv3)],
     ["avg", nodeType(avg)],
+    ["Mask", nodeType(mask)],
+    ["Warp", nodeType(uvWarp)],
     ["maxk", nodeType(maxk)],
     ["mink", nodeType(mink)],
     ["mux", nodeType(mux)],
@@ -289,10 +291,24 @@ function edgeHA(A) {
     }
 }
 
+function uvWarp(A, UV) {
+    var u = Math.floor(0.5 + UV[0][this.thread.y][this.thread.x] * this.dimensions.x);
+    var v = Math.floor(0.5 + UV[1][this.thread.y][this.thread.x] * this.dimensions.y);
+
+    return A[this.thread.z][v][u];
+}
+
 function avg(A, B) {
     return (A[this.thread.z][this.thread.y][this.thread.x] +
             B[this.thread.z][this.thread.y][this.thread.x]) / 2;
 }
+
+function mask(A,B, mask) {
+    var m = mask[this.thread.z][this.thread.y][this.thread.x];
+    return (   m  * A[this.thread.z][this.thread.y][this.thread.x] +
+            (1-m) * B[this.thread.z][this.thread.y][this.thread.x]);
+}
+
 function mux(A, B, C) {
     if (this.thread.z == 0) {
         return A[this.thread.y][this.thread.x];
@@ -838,12 +854,12 @@ Edge.prototype = {
         var vo = vf;
 
         if (this.outputPin) {
-            vi = [this.outputPin.x,
+            vi = [this.outputPin.x + 9,
                   this.outputPin.y];
         }
 
         if (this.inputPin) {
-            vo = [this.inputPin.x,
+            vo = [this.inputPin.x - 9,
                   this.inputPin.y];
         }
 
@@ -1007,7 +1023,7 @@ Node.prototype = {
             }
         }
 
-        var val = this.kern.apply(undefined, params);
+        var val = this.kern[renderMode].apply(undefined, params);
         return val;
     },
 };
@@ -1094,8 +1110,14 @@ function nodeType(fn) {
         var node = new Node(64, 32 + 32 * Math.max(1, fn.length), pins);
         node.setPos([x||0, y||0]);
         node.label = fn.name;
-        node.kern = gpu.createKernel(fn)
-            .mode(renderMode)
+        node.kern = {};
+        node.kern["gpu"] = gpu.createKernel(fn)
+            .mode("gpu")
+            .dimensions([400, 400, 3])
+            .outputToTexture(true)
+            .graphical(false);
+        node.kern["cpu"] = gpu.createKernel(fn)
+            .mode("cpu")
             .dimensions([400, 400, 3])
             .outputToTexture(true)
             .graphical(false);
@@ -1109,7 +1131,9 @@ function getNewDisplayNode() {
     var node = new Node(64, 64, [{dir:"in", label:"A", type:"[x,y,4]"}]);
     node.setPos([500, 100]);
     node.label = "Display";
-    node.kern = show;
+    node.kern = {}
+    node.kern["gpu"] = show["gpu"];
+    node.kern["cpu"] = show["cpu"];
     node.img.src = "";
     return node;
 }
@@ -1118,9 +1142,16 @@ function getImgNode(imgArr) {
     var node = new Node(64, 64, [{dir:"out", label:"img", type:"[x,y,4]"}]);
     node.setPos([300, 100]);
     node.label = "Image";
-    console.log(imgArr);
+
+    // Cache the pixel array into a format usable by the current render mode
+    // Will store the image as a texture for GPU mode
+    var img = {};
+    var rnd = Math.random();
+    img["gpu"] = identity["gpu"](imgArr);
+    img["cpu"] = identity["cpu"](imgArr);
+
     node.compute = function() {
-        return imgArr;
+        return img[renderMode];
     }
     return node;
 }
@@ -1301,9 +1332,20 @@ function computeThumbnails() {
         }
 
         console.log("Computing thumbnail for " + obj.label + " type: " + obj.type);
-        show(obj.compute());
-        obj.img.src = resultCanvas.toDataURL();
+        try {
+            // Supress errors when a node doesn't have all inputs
+            show[renderMode](obj.compute());
+            obj.img.src = outputCanvas[renderMode].toDataURL();
+        } catch (e) {}
     }
+    redraw();
+}
+
+function toggleMode() {
+    renderMode = (renderMode == "gpu") ? "cpu" : "gpu";
+    console.log("Changing to   " + renderMode + " mode");
+    var toggleButton = document.getElementById("toggleMode");
+    toggleButton.value = renderMode + " Mode";
 }
 
 // .===========================================================================
@@ -1311,13 +1353,45 @@ function computeThumbnails() {
 // '===========================================================================
 
 // Create the kernel which actually draws to the screen
-var show = gpu.createKernel(function(A) {
+// Defaults to gpu since that's what the example code has, and it makes it
+// easier to switch between cpu and gpu
+var show = {}
+
+show["gpu"] = gpu.createKernel(function(A) {
     this.color(A[0][this.thread.y][this.thread.x],
                A[1][this.thread.y][this.thread.x],
                A[2][this.thread.y][this.thread.x]);
-}).mode(renderMode)
+}).mode("gpu")
     .dimensions([400, 400])
     .graphical(true);
+
+show["cpu"] = gpu.createKernel(function(A) {
+    this.color(A[0][this.thread.y][this.thread.x],
+               A[1][this.thread.y][this.thread.x],
+               A[2][this.thread.y][this.thread.x]);
+}).mode("cpu")
+    .dimensions([400, 400])
+    .graphical(true);
+
+
+function ident(img) {
+    return img[this.thread.z][this.thread.y][this.thread.x];
+}
+
+identity = {};
+// The following two functions return a texture given an array input
+identity["gpu"] = function(imgArr) {
+    return gpu.createKernel(ident).mode("gpu")
+              .dimensions([400, 400, 3])
+              .outputToTexture(true)
+              .graphical(false)(imgArr);
+}
+identity["cpu"] = function(imgArr) {
+    return gpu.createKernel(ident).mode("cpu")
+              .dimensions([400, 400, 3])
+              .outputToTexture(true)
+              .graphical(false)(imgArr);
+}
 
 var bg_loaded = false;
 var bg_tile = new Image();
@@ -1327,6 +1401,8 @@ bg_tile.onload = bgImgLoaded;
 bg_tile.src = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABz" +
 "enr0AAAAQklEQVRYw+3VsQkAMQwDQCf8VJ7W03it/BAuQuDUCw5UaFXViUG6e1KPHZcDAAAAAAAA" +
 "8E3/PDNNAAAAAAAA8DbgBz5jCHOrWGXXAAAAAElFTkSuQmCC";
+
+var frameCount = 0;
 
 
 // .===========================================================================
@@ -1340,17 +1416,35 @@ window.addEventListener("mousemove", delegateToMouseStateManager, false);
 canvas.addEventListener("mousewheel", scale_up, false);
 canvas.addEventListener("contextmenu", add_square, false);
 
-var resultCanvas = show.getCanvas();
-document.getElementsByTagName('body')[0].appendChild(resultCanvas);
+var outputCanvas = {};
+outputCanvas["gpu"] = show["gpu"].getCanvas();
+outputCanvas["cpu"] = show["cpu"].getCanvas();
+outputCanvas["gpu"].className = "ui gpu";
+outputCanvas["cpu"].className = "ui cpu";
+
+document.getElementsByTagName('body')[0].appendChild(outputCanvas["gpu"]);
+document.getElementsByTagName('body')[0].appendChild(outputCanvas["cpu"]);
 
 // Add the display node to the canvas, an image node is also added be default
 // loadImage is called by the page body's onload property
 var displayNode = getNewDisplayNode();
 renderableObjects.push(displayNode);
 
-var showNewImage = function() { displayNode.compute(); }
+// showNewImage used to be declared using a variable, but the chrome
+// profiler shows lower overhead when calling showNewImage when it's
+// declared as a function as below
+function showNewImage() {
+    displayNode.compute();
+    frameCount++;
+}
 
-window.setInterval(showNewImage, 20);
+var displayFps = function() {
+    document.getElementById("fps").innerHTML = frameCount;
+    frameCount = 0;
+}
+
+window.setInterval(showNewImage, 0);
+window.setInterval(displayFps, 1000);
 window.setInterval(recomputeCanvasSize, 500);
 
 

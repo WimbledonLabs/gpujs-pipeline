@@ -31,11 +31,6 @@ function test() {
     window.setInterval(pingpong, sleepFor);
 }
 
-setInterval( function() {
-    document.getElementById("fps").innerHTML = generation;
-    generation = 0;
-}, 1000);
-
 var mode = "gpu";
 
 // Input dimensions
