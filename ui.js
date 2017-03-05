@@ -1,3 +1,40 @@
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+ * Welcome to the source code for (mostly) the UI portion of this project!
+ *
+ * Some things to note:
+ * - Trait-based inheritance is used for rendering, and managing mouse
+ *   interaction for the editor
+ * - This file is not heavily documented since the ui simple acts as a wrapper
+ *   around functions, and is not a focus of the project
+ * - The image processing pipeline starts from a root display node, which
+ *   requests a value from its input. Connected nodes recursively get values
+ *   from their inputs until there is a node which requires no inputs (a source
+ *   node such as an image, radial gradient, etc). These values then propagate
+ *   back, being transformed at each node depending on the node's function. Once
+ *   it reaches the display node it is displayed on an output canvas.
+ * - Each node has 2 gpu.js kernels, one for the cpu mode, and one for the gpu
+ * - The pipeline cannot have cycles, and no cycle detection is done.
+ *
+ * - The variable "functionList" is populated by kernelFunctions.js and contains
+ *   an array with tuples of (node name, node factory)
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ * */
+
+
+
 // .===========================================================================
 // | Object Prototype Functions
 // '===========================================================================
@@ -145,7 +182,7 @@ var Pinnable = {
 var canvas = document.getElementById("plan");
 var context = canvas.getContext('2d');
 
-var renderableObjects = [];
+var editorObjects = [];
 
 var pan_x = 0;
 var pan_y = 0;
@@ -200,10 +237,10 @@ DefaultMouseStateManager.prototype = {
         var grid_coord = screen_to_grid_coords([e.layerX, e.layerY]);
 
         // Try to find an object to take over the mouse interaction
-        for (var i=0; i<renderableObjects.length; i++) {
-            var obj = renderableObjects[i];
+        for (var i=0; i<editorObjects.length; i++) {
+            var obj = editorObjects[i];
             if (obj.isPressable && obj.isOver(grid_coord)) {
-                mouseStateManager = renderableObjects[i].press(e);
+                mouseStateManager = editorObjects[i].press(e);
                 return;
             }
         }
@@ -213,8 +250,8 @@ DefaultMouseStateManager.prototype = {
     },
     mousemove: function(e) {
         var grid_coord = screen_to_grid_coords([e.layerX, e.layerY]);
-        for (var i=0; i<renderableObjects.length; i++) {
-            var obj = renderableObjects[i];
+        for (var i=0; i<editorObjects.length; i++) {
+            var obj = editorObjects[i];
             if (obj.isPressable) {
                 obj.isOver(grid_coord);
             }
@@ -243,8 +280,8 @@ function ContextMenuStateManager(event) {
     this.x = g[0];
     this.y = g[1];
     this.w = 100;
-    this.h = 300;
-    renderableObjects.push(this);
+    this.h = 8 + functionList.length * 16;
+    editorObjects.push(this);
 
     this.mousePos = g;
     this.rMousePos = [0,0];
@@ -299,7 +336,7 @@ ContextMenuStateManager.prototype = {
                     this.rMousePos[0] < this.w) {
                 var node = list[i][1].call(undefined);
                 node.setPos(this.mousePos);
-                renderableObjects.push(node);
+                editorObjects.push(node);
             }
         }
 
@@ -308,7 +345,7 @@ ContextMenuStateManager.prototype = {
     },
 
     useDefaultMouseState: function(e) {
-        renderableObjects.remove(this);
+        editorObjects.remove(this);
         MouseStateManager.useDefaultMouseState(e);
     }
 }
@@ -338,8 +375,8 @@ DragMouseStateManager.prototype = {
         // Hey! Let's copy the code from the default mouse movement code so that
         // this can highlight things too. I'm sure I won't have to refactor this
         // later ;)
-        for (var i=0; i<renderableObjects.length; i++) {
-            var obj = renderableObjects[i];
+        for (var i=0; i<editorObjects.length; i++) {
+            var obj = editorObjects[i];
             if (obj.isPressable) {
                 obj.isOver(g);
             }
@@ -373,8 +410,8 @@ EdgePointStateManager.addTraits(DragMouseStateManager.prototype, {
 
         var g = screen_to_grid_coords([e.layerX, e.layerY]);
 
-        for (var i=0; i<renderableObjects.length; i++) {
-            var obj = renderableObjects[i];
+        for (var i=0; i<editorObjects.length; i++) {
+            var obj = editorObjects[i];
 
             // TODO look for NodePins, rather than the Nodes that contain them
             if (obj instanceof NodePin) {
@@ -400,7 +437,7 @@ EdgePointStateManager.addTraits(DragMouseStateManager.prototype, {
                             pin.edges[0].removeEdge();
                         }
                     }
-                    renderableObjects.remove(this.draggedObj);
+                    editorObjects.remove(this.draggedObj);
                     this.useDefaultMouseState();
                     redraw();
                     return;
@@ -412,7 +449,7 @@ EdgePointStateManager.addTraits(DragMouseStateManager.prototype, {
         // This allows for click-hold-drag-release or for click-release move click-release
         if (!this.firstPress) {
             console.log("Try better to click on an actual pin...");
-            renderableObjects.remove(this.draggedObj);
+            editorObjects.remove(this.draggedObj);
             this.useDefaultMouseState();
             redraw();
             return;
@@ -579,7 +616,7 @@ NodePin.prototype = {
         edge.x = g[0];
         edge.y = g[1];
 
-        renderableObjects.push(edge);
+        editorObjects.push(edge);
 
         event.preventDefault();
         redraw();
@@ -629,7 +666,7 @@ function Edge(outputPin, inputPin) {
 
 Edge.prototype = {
     removeEdge: function() {
-        renderableObjects.remove(this);
+        editorObjects.remove(this);
         if (this.inputPin) {
             this.inputPin.edge = undefined;
         } if (this.outputPin) {
@@ -659,7 +696,7 @@ Edge.prototype = {
         this.inputPin = input;
 
         // Unneeded since we expect this to already be in the list
-        // renderableObjects.push(this);
+        // editorObjects.push(this);
     },
 
     draw: function (in_ctx) {
@@ -763,7 +800,7 @@ function Node(w, h, pinDesc) {
                               offsetX[desc.dir], offsetY[desc.dir]);
         offsetY[desc.dir] += 32;
         thisNode.pins[desc.dir].push(pin);
-        renderableObjects.push(pin);
+        editorObjects.push(pin);
     });
 }
 
@@ -844,104 +881,6 @@ Node.prototype = {
 
 Node.addTraits(Renderable, Pressable);
 
-function getKernNode(kern) {
-    var inner = function kernel() {
-        var node = new Node(64, 64, [{dir:"out", label:"kern", type:"[x,y,4]"}]);
-        node.label = "Kern";
-        node.type = "scalar";
-        node.img.src = "";
-
-        node.compute = function() {
-            return kern;
-        };
-
-        return node;
-    }
-
-    return inner;
-}
-
-function getTimeNode() {
-    var node = new Node(128, 64, [{dir:"out", label:"time", type:"[x,y,4]"}]);
-    node.label = "Time (s) mod 1";
-    node.type = "scalar";
-    node.img.src = "";
-    node.compute = function() {
-        return (Date.now() % 1000) / 1000;
-    };
-
-    return node;
-}
-
-function getSliderNode() {
-    var node = new Node(128, 64, [{dir:"out", label:"val", type:"[x,y,4]"}]);
-
-    node.label = "Slider";
-    node.type = "scalar";
-    node.img.src = "";
-
-    node.slider = {
-        val: 0.1,
-
-        getValue: function() {
-            return this.val;
-        }
-    }
-
-    node.compute = function() {
-        return this.slider.getValue();
-    };
-
-    node.isOver = function(pos) {
-        var ret = this.hitbox.inBounds(pos);
-        if (ret) {
-            var t = pos[0] - this.x;
-            var ts = t / this.w
-            this.slider.val = ts;
-        }
-
-        return ret;
-    }
-
-    node.draw = function(ctx) {
-        Node.prototype.draw.call(this, ctx);
-        ctx.fillStyle = "#666666";
-        ctx.fillRoundRect(this.x + 7, this.y + this.h / 2, this.w - 14, 6, 3);
-        ctx.fillStyle = "#aaaaaa";
-        ctx.fillRoundRect(this.x + 8, this.y + this.h / 2 + 1, this.slider.getValue()*(this.w - 16), 4, 2);
-    }
-
-    return node;
-}
-
-/* nodeType takes in a function a returns a function which is a factory
- * for nodes which perform the provided function
- */
-function nodeType(fn) {
-    var factory = function() {
-        var pins = [{dir:"out", label:"Out", type:"[x,y,4]"}];
-        for (var i=0; i<fn.length; i++) {
-            pins.push({dir:"in", label:"In", type:"[x,y,4]"})
-        }
-        var node = new Node(64, 32 + 32 * Math.max(1, fn.length), pins);
-        node.setPos([x||0, y||0]);
-        node.label = fn.name;
-        node.kern = {};
-        node.kern["gpu"] = gpu.createKernel(fn)
-            .mode("gpu")
-            .dimensions([400, 400, 3])
-            .outputToTexture(true)
-            .graphical(false);
-        node.kern["cpu"] = gpu.createKernel(fn)
-            .mode("cpu")
-            .dimensions([400, 400, 3])
-            .outputToTexture(true)
-            .graphical(false);
-        return node;
-    }
-
-    return factory;
-};
 
 function getNewDisplayNode() {
     var node = new Node(64, 64, [{dir:"in", label:"A", type:"[x,y,4]"}]);
@@ -1024,8 +963,8 @@ function redraw() {
     }
 
     // Draw objects
-    for (var i=0; i<renderableObjects.length; i++) {
-        renderableObjects[i].draw(context);
+    for (var i=0; i<editorObjects.length; i++) {
+        editorObjects[i].draw(context);
     }
 
     // *cough* hack *cough* otherwise the last object being rendered will
@@ -1066,7 +1005,7 @@ function loadImage(imageElement) {
     }
 
     //return arr;
-    renderableObjects.push(getImgNode(arr));
+    editorObjects.push(getImgNode(arr));
 }
 
 function recomputeCanvasSize() {
@@ -1109,7 +1048,7 @@ function add_edge(event) {
     edge.x = g[0];
     edge.y = g[1];
 
-    renderableObjects.push(edge);
+    editorObjects.push(edge);
 
     mouseStateManager = new EdgePointStateManager(edge, event);
     event.preventDefault();
@@ -1139,8 +1078,8 @@ function handleFiles(files) {
 }
 
 function computeThumbnails() {
-    for (var i=0; i<renderableObjects.length; i++) {
-        var obj = renderableObjects[i];
+    for (var i=0; i<editorObjects.length; i++) {
+        var obj = editorObjects[i];
         if (!(obj instanceof Node) ||
                 obj === displayNode ||
                 obj.type == "scalar") {
@@ -1244,7 +1183,7 @@ document.getElementsByTagName('body')[0].appendChild(outputCanvas["cpu"]);
 // Add the display node to the canvas, an image node is also added be default
 // loadImage is called by the page body's onload property
 var displayNode = getNewDisplayNode();
-renderableObjects.push(displayNode);
+editorObjects.push(displayNode);
 
 // showNewImage used to be declared using a variable, but the chrome
 // profiler shows lower overhead when calling showNewImage when it's
