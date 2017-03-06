@@ -18,19 +18,7 @@
  * - The variable "functionList" is populated by kernelFunctions.js and contains
  *   an array with tuples of (node name, node factory)
  *
- *
- *
- *
- *
- *
- *
- *
- *
- *
- *
- *
- *
- *
+ * - All textures dimensions are hard-coded
  * */
 
 
@@ -182,10 +170,13 @@ var Pinnable = {
 var canvas = document.getElementById("plan");
 var context = canvas.getContext('2d');
 
+var tex_w = 400;
+var tex_h = 400;
+
 var editorObjects = [];
 
-var pan_x = 0;
-var pan_y = 0;
+var pan_x = 225;
+var pan_y = 316;
 
 var scale_x = 1.0;
 var scale_y = 1.0;
@@ -981,26 +972,26 @@ function loadImage(imageElement) {
     //var ctx = canvas.getContext('2d');
     //var imag = document.getElementById("backimage");
     var clipboardCtx = document.getElementById("clipboard").getContext('2d');
-    clipboardCtx.drawImage(imag, 0, 0, 400, 400);
+    clipboardCtx.drawImage(imag, 0, 0, tex_w, tex_h);
 
     // Why do this next line?
     imag.style.display = 'none';
 
-    var imageData = clipboardCtx.getImageData(0, 0, 400, 400);
+    var imageData = clipboardCtx.getImageData(0, 0, tex_w, tex_h);
 
     for (var channel=0; channel<4; channel++) {
         arr.push([]);
-        for (var y=0; y<400; y++) {
+        for (var y=0; y<tex_h; y++) {
             arr[channel].push([]);
         }
     }
     var pointer = 0;
-    for (var y=0; y<400; y++) {
-        for (var x=0; x<400; x++) {
-            arr[0][400-y-1][x] = imageData.data[pointer++]/256;
-            arr[1][400-y-1][x] = imageData.data[pointer++]/256;
-            arr[2][400-y-1][x] = imageData.data[pointer++]/256;
-            arr[3][400-y-1][x] = imageData.data[pointer++]/256;
+    for (var y=0; y<tex_h; y++) {
+        for (var x=0; x<tex_w; x++) {
+            arr[0][tex_h-y-1][x] = imageData.data[pointer++]/256;
+            arr[1][tex_h-y-1][x] = imageData.data[pointer++]/256;
+            arr[2][tex_h-y-1][x] = imageData.data[pointer++]/256;
+            arr[3][tex_h-y-1][x] = imageData.data[pointer++]/256;
         }
     }
 
@@ -1117,7 +1108,7 @@ show["gpu"] = gpu.createKernel(function(A) {
                A[1][this.thread.y][this.thread.x],
                A[2][this.thread.y][this.thread.x]);
 }).mode("gpu")
-    .dimensions([400, 400])
+    .dimensions([tex_w, tex_h])
     .graphical(true);
 
 show["cpu"] = gpu.createKernel(function(A) {
@@ -1125,7 +1116,7 @@ show["cpu"] = gpu.createKernel(function(A) {
                A[1][this.thread.y][this.thread.x],
                A[2][this.thread.y][this.thread.x]);
 }).mode("cpu")
-    .dimensions([400, 400])
+    .dimensions([tex_w, tex_h])
     .graphical(true);
 
 
@@ -1137,13 +1128,13 @@ identity = {};
 // The following two functions return a texture given an array input
 identity["gpu"] = function(imgArr) {
     return gpu.createKernel(ident).mode("gpu")
-              .dimensions([400, 400, 3])
+              .dimensions([tex_w, tex_h, 3])
               .outputToTexture(true)
               .graphical(false)(imgArr);
 }
 identity["cpu"] = function(imgArr) {
     return gpu.createKernel(ident).mode("cpu")
-              .dimensions([400, 400, 3])
+              .dimensions([tex_w, tex_h, 3])
               .outputToTexture(true)
               .graphical(false)(imgArr);
 }

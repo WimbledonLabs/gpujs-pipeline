@@ -1,9 +1,13 @@
 /* Please see the documentation in ui.js for details on how these functions are
- * composed to create larger image processing pipelines.
+ * composed in the ui to create larger image processing pipelines.
  * */
 
 var menuSeparator = "\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015";
 
+/* functionList is used by the ui to populate the context-click menu. The first
+ * item is the text that appears in the menu, and the second item is a function
+ * which returns a node when called.
+ */
 var functionList = [
     // Source nodes
     ["Circle", nodeType(circle)],
@@ -57,7 +61,7 @@ var functionList = [
     ["H Sobel Kernel", getKernNode([[ 1,  0, -1], [2,  0, -2], [0, 0, 0]])],
     ["V Sobel Kernel", getKernNode([[-1, -2, -1], [0,  0,  0], [1, 2, 1]])],
 
-    // Real-valued nodes
+    // Real-valued output nodes
     [menuSeparator , null],
     ["Slider", getSliderNode],
     ["One", getScalarOneNode],
@@ -66,8 +70,11 @@ var functionList = [
     ["Sine", getSineNode],
 ];
 
-/* nodeType takes in a function a returns a function which is a factory
- * for nodes which perform the provided function
+/* Returns a factory for nodes which perform the provided function
+ *
+ * Params:
+ *   fn - the kernel function
+ *   output - node factory
  */
 function nodeType(fn) {
     var factory = function() {
@@ -81,12 +88,12 @@ function nodeType(fn) {
         node.kern = {};
         node.kern["gpu"] = gpu.createKernel(fn)
             .mode("gpu")
-            .dimensions([400, 400, 3])
+            .dimensions([tex_w, tex_h, 3])
             .outputToTexture(true)
             .graphical(false);
         node.kern["cpu"] = gpu.createKernel(fn)
             .mode("cpu")
-            .dimensions([400, 400, 3])
+            .dimensions([tex_w, tex_h, 3])
             .outputToTexture(true)
             .graphical(false);
         return node;
@@ -100,33 +107,81 @@ function nodeType(fn) {
 // | Node Functions Interals
 // '===========================================================================
 
+/* Maps a colour channel to 1 if it is greater than a threshold, 0 otherwise
+ *
+ * Params:
+ *   A - input texture
+ *   val - the threshold value
+ *   output - the thresholded texture
+ *
+ * Uses:
+ *   - Various effects
+ */
 function threshold(A, val) {
     return Math.floor(1 + Math.sign(A[this.thread.z][this.thread.y][this.thread.x] - val)/2);
 }
 
+/* Convert texture from sRGB colour space to Linear colour space
+ *
+ * Params:
+ *   A - input texture
+ *   output - the texture, gamma decoded
+ *
+ * Uses:
+ *   - Most image processing algorithms are designed to work in linear colour
+ *     space, but images are typically in sRGB colour space. This function
+ *     allows images to be decoded for use in typical image processing
+ *     functions. Operations as simple as blending, gradients, and scaling
+ *     will yield incorrect results if the input texture is not in the correct
+ *     colour space
+ */
 function gammaDecode(A) {
     return Math.pow(A[this.thread.z][this.thread.y][this.thread.x], 1.0/2.2);
 }
 
+/* Convert texture from linear colour space to sRGB colour space
+ *
+ * Params:
+ *   A - input texture
+ *   output - the texture, gamma encoded
+ *
+ * Uses:
+ *   - Most image processing algorithms are designed to work in linear colour
+ *     space, but need to be displayed on sRGB monitors, so we need to encode
+ *     them before displaying
+ */
 function gammaEncode(A) {
     return Math.pow(A[this.thread.z][this.thread.y][this.thread.x], 2.2);
 }
 
+/* Brightne/Darken a texture with a scalar
+ *
+ * Params:
+ *   A - input texture
+ *   val - brightness level, 0.5 is no change, 0 is all black, 1.0 is 2x as bright
+ *   output - the modified texture
+ *
+ * Uses:
+ *   - Faster than multiplying with greyscale colour, this is just a special case
+ *   - Sometimes images just aren't bright enough...
+ */
 function brightness(A, val) {
     // Faster than a multiply with a colour. 160 fps for 4 in a row vs.
     // 90 fps with 4 in a row
     return val*2*A[this.thread.z][this.thread.y][this.thread.x];
 }
 
-/* Shift a texture a given amount. Textures wrap around
+/* Shift a texture a given amount. Textures wrap around.
  *
  * Params:
  *   A - input texture
- *   k - 3x3 convolution matrix
- *   output - a texture convolved with the provided matrix
+ *   x - amount to shift in x, scalar input
+ *   y - amount to shift in y, scalar input
+ *   output - the shifted texture
  *
  * Uses:
- *   - Sharpen, blur, edge detect, emboss
+ *   - Animating textures with varying scalars (such as sine)
+ *   - Positioning textures on the output image
  */
 function translatek(A, x, y) {
     var tx = (this.thread.x + x * this.dimensions.x) % this.dimensions.x;
@@ -167,9 +222,9 @@ function conv(A, k) {
 /* Averages the channel values of two textures
  *
  * Params:
- *   r - red channel value
- *   g - green channel value
- *   b - blue channel value
+ *   r - red channel value, scalar input
+ *   g - green channel value, scalar input
+ *   b - blue channel value, scalar input
  *   output - a solid colour texture with the provided r, g, b values
  *
  * Uses:
@@ -222,13 +277,23 @@ function uvWarp(A, UV) {
  *   output - the average of A and B for each channel value for each pixel location
  *
  * Uses:
- *  - Faster than mask when you want an even weighting between 2 textures
+ *  - Faster than mask when you want an even weighting between 2 textures, this
+ *    is just a special case
  */
 function avg(A, B) {
     return (A[this.thread.z][this.thread.y][this.thread.x] +
             B[this.thread.z][this.thread.y][this.thread.x]) / 2;
 }
 
+/* Blends the channels of two textures, with the weighting defined in a third
+ * mask texture.
+ *
+ * Params:
+ *   A - input texture
+ *   B - input texture
+ *   mask - for a channel value c, the output is p = A + (1-c)*B
+ *   output - the blending of the two textures
+ */
 function mask(A,B, mask) {
     var m = mask[this.thread.z][this.thread.y][this.thread.x];
     return (   m  * A[this.thread.z][this.thread.y][this.thread.x] +
@@ -314,26 +379,51 @@ function mink(A, B) {
  * Params:
  *   A - input texture
  *   output - outputs A
+ *
+ * Uses:
+ *  - Mainly for testing node overhead
+ *  - Also useful as a buffer. If a texture is used in multiple places, this
+ *    makes it easier to change textures.
  */
 function ident(A) {
     return A[this.thread.z][this.thread.y][this.thread.x];
 }
 
+/* Inverts each channel of the texture
+ *
+ * Params:
+ *   A - input texture
+ *   output - inverted texture
+ *
+ * Uses:
+ *  - Cool effects
+ */
 function inv(A) {
     return 1 - A[this.thread.z][this.thread.y][this.thread.x];
 }
 
+/* Creates a horizontal gradient */
 function grad() {
-    return this.thread.x / 400;
+    return this.thread.x / this.dimensions.x;
 }
 
+/* Creates a radial gradient centred around the middle of the texture */
 function circle() {
-    var sx = (this.thread.x - 200) / 160;
-    var sy = (this.thread.y - 200) / 160;
+    var sx = (this.thread.x - this.dimensions.x/2) / (this.dimensions.x/2 - 40);
+    var sy = (this.thread.y - this.dimensions.y/2) / (this.dimensions.y/2 - 40);
     var c = Math.min(1.0, Math.sqrt(sx*sx + sy*sy));
     return c;
 }
 
+/* Creates a white rectangle defined by the vertices (x0, y0), (x1, y1)
+ *
+ * Params:
+ *   x0 - starting x
+ *   x1 - ending x
+ *   y0 - starting y
+ *   y1 - ending y
+ *   output - black texture with a white triangle
+ */
 function box(x0, x1, y0, y1) {
     return (1 + Math.sign(-x0 + this.thread.x/this.dimensions.x)) *
            (1 + Math.sign( x1 - this.thread.x/this.dimensions.x)) *
@@ -346,6 +436,15 @@ function box(x0, x1, y0, y1) {
 // | Real-Value Nodes
 // '===========================================================================
 
+/* Returns a factory which outputs the provided value
+ *
+ * Params:
+ *   kern - the value returned by the node
+ *
+ * Uses:
+ *   - Creating nodes for use with the convolution function, has all the same
+ *     uses
+ */
 function getKernNode(kern) {
     var inner = function kernel() {
         var node = new Node(64, 64, [{dir:"out", label:"kern", type:"scalar"}]);
@@ -362,6 +461,8 @@ function getKernNode(kern) {
     return inner;
 }
 
+/* Node factory which returns a node that outputs a scalar. The scaler value
+ * equals sin(t)^2 where t is the time in seconds. */
 function getSineNode() {
     var node = new Node(128, 64, [{dir:"out", label:"Sine", type:"scalar"}]);
     node.label = "Sine"
@@ -374,6 +475,8 @@ function getSineNode() {
     return node;
 }
 
+/* Node factory which returns a node that outputs a scalar. The scaler value
+ * equals t % 1 where t is the time in seconds */
 function getTimeNode() {
     var node = new Node(128, 64, [{dir:"out", label:"Time (s) mod 1", type:"scalar"}]);
     node.label = "Time (s) mod 1";
@@ -386,6 +489,12 @@ function getTimeNode() {
     return node;
 }
 
+/* Node factory which returns a node that outputs a scalar. The scaler value
+ * equals 1
+ *
+ * Uses:
+ *   - Sometimes you need EXACTLY one, which you can't get with a slider
+ */
 function getScalarOneNode() {
     var node = new Node(64, 64, [{dir:"out", label:"One", type:"scalar"}]);
     node.label = "One";
@@ -398,6 +507,13 @@ function getScalarOneNode() {
     return node;
 }
 
+
+/* Node factory which returns a node that outputs a scalar. The scaler value
+ * equals 0
+ *
+ * Uses:
+ *   - Sometimes you need EXACTLY zero, which you can't get with a slider
+ */
 function getScalarZeroNode() {
     var node = new Node(64, 64, [{dir:"out", label:"Zero", type:"scalar"}]);
     node.label = "Zero";
@@ -410,6 +526,13 @@ function getScalarZeroNode() {
     return node;
 }
 
+/* Node factory which returns a node that outputs a scalar. The scaler value
+ * is based on the last place on the node that the mouse hovered over. Values
+ * are between 0 and 1
+ *
+ * Uses:
+ *   - Getting arbitrary scalar values
+ */
 function getSliderNode() {
     var node = new Node(128, 64, [{dir:"out", label:"Slider", type:"scalar"}]);
     node.label = "Slider";
