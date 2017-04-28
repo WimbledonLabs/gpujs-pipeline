@@ -333,7 +333,7 @@ function div(A, B) {
  *   output - the product of each channel value for each pixel location
  */
 function mul(A, B) {
-    return A[this.thread.z][this.thread.y][this.thread.x] +
+    return A[this.thread.z][this.thread.y][this.thread.x] *
            B[this.thread.z][this.thread.y][this.thread.x];
 }
 
