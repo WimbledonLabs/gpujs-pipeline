@@ -1,95 +1,112 @@
-
-<!DOCTYPE html>
 <html>
-<head>
+    <head>
 
-<title>TEST of simple GPU/CPU system</title>
-
-</head>
-<body>
-
-<script src="js/gpu.js"></script>
-<script src="js/decls.js"></script>
-
-<input type="button" value="Using GPU" onclick="return change(this);" />
-<input type="button" value="Filtering" onclick="return changeFilter(this);" />
-<input type="button" value="Animation" onclick="return changeAnimation(this);" />
-
-
-<div id="fps"></div>
-
-<img id="backimage" src="images/image2.jpg" onload="loadImage()" width="800" height="600">
-<canvas id="backimageCanvas" width="800" height="600">
-
-<script src="ui.js"></script>
-<script src="kerneldefs.js"></script>
-
-
-<script>
-var myKernelAnim = makeAnim("gpu");
-var myCodeAnim   = makeAnim("cpu");
-var myKernelFilter1 = makeFilter("gpu");
-var myKernelFilter2 = makeFilter("gpu");
-var myCodeFilter1   = makeFilter("cpu");
-var myCodeFilter2   = makeFilter("cpu");
-var marquee = makeAnimator("gpu");
-var orig;
-var afterload = false;
-var animIndex = 0;
-var canvas = myKernelAnim.getCanvas();
-document.getElementsByTagName('body')[0].appendChild(canvas);
-
-var f = document.querySelector("#fps");
-function renderLoop() {
-    f.innerHTML = fps.getFPS();
-
-    if (loadedImage) {
-        orig = myKernelAnim(arr);
-        loadedImage=false;
-        afterload = true;
-    }
-
-    if (animation) {
-        var C =  marquee(orig,animIndex);
-        animIndex = (animIndex+1)%800;
-    } else {
-        var C = orig;
-    }
-
-    if (filtering === 0) {
-        if (selection === 0) {
-            var D = myCodeFilter1(C);
-            var X = myCodeFilter2(D);
-        } else {
-            var D = myKernelFilter1(C);
-            var X = myKernelFilter2(D);
-        }
-    } else {
-        var X = C;
-    }
-
-    var E = toimg(X);
-    if (selection !== 0) {
-        if (filtering === 0){
-            D.delete();
-        }
-        C.delete();
-        X.delete();
-    }
-    if (firsttime) {
-        firsttime = false;
-        var cv = document.getElementsByTagName("canvas")[0];
-        var bdy = cv.parentNode;
-        var newCanvas = toimg.getCanvas();
-        bdy.replaceChild(newCanvas, cv);
-    }
-
-//    setTimeout(renderLoop,1);            // Uncomment this line, and comment the next line
-    requestAnimationFrame(renderLoop);     // to see how fast this could run...
+<style>
+body {
+    padding: 0px;
+    margin: 0em;
 }
-window.onload = renderLoop;
 
-</script>
+.ui {
 
-</body>
+    position: fixed;
+    z-index: 1;
+}
+
+.cpu {
+    left: 0px;
+    top: 100px;
+}
+
+.gpu {
+    left: 0px;
+    top: 500px;
+}
+
+span.gpu {
+    z-index: 2;
+}
+
+span.cpu {
+    z-index: 2;
+}
+
+#panel {
+    height: 100%;
+    width: 400px;
+
+    background-color: #333333;
+    border-right: 5px solid orange;
+}
+
+#toggleMode {
+    top: 30px;
+}
+
+#thumbnail {
+    top: 50px;
+}
+
+#file_input {
+    top: 70px;
+}
+
+#fps {
+    font-size: 30px;
+    position: absolute;
+    color: yellow;
+    font-family: "monospace";
+
+    z-index: 1;
+}
+
+#plan {
+    width: 100%;
+    height: 100%;
+
+    overflow: hidden;
+    position: absolute;
+    padding: 0px;
+    margin: 0px;
+
+    z-index: 0;
+}
+
+#debug {
+    font-family: monospace;
+    color: #f0f0f0;
+    background-color: #333333;
+    word-break: break-all;
+    padding: 0.2em;
+    height: 30%;
+
+    overflow-y: scroll;
+}
+</style>
+    </head>
+    <body onload="recomputeCanvasSize()">
+        <div class="ui" id="panel"> </div>
+        <span id="fps"></span>
+        <span class="ui cpu">CPU</span>
+        <span class="ui gpu">GPU</span>
+        <input class="ui" type="file"   id="file_input" onchange="handleFiles(this.files)">
+        <input class="ui" type="button" id="thumbnail" value="Compute Thumbnails" onclick="computeThumbnails()" />
+        <input class="ui" type="button" id="toggleMode" value="gpu Mode" onclick="toggleMode()" />
+         <div id="grid_fn"></div>
+        <canvas id="plan"></canvas>
+    <br />
+        <!-- This is the most literal clipboard I've ever programmed...
+             used to store pixel data when loading an image into a matrix -->
+        <canvas id="clipboard" width="600" height="600" style="display: none;"></canvas>
+        <!-- <div id="debug"></div> -->
+
+<!--    <canvas id="scaled" width="512" height="512">
+    </canvas>
+-->
+
+<script src="js/gpu.js?nocache"></script>
+    <script src="parallel.js?nocache"></script>
+    <script src="ui.js?nocache"></script>
+    <script src="kernelFunctions.js?nocache"></script>
+    </body>
 </html>
