@@ -83,7 +83,7 @@ function nodeType(fn) {
             pins.push({dir:"in", label:"In", type:"[x,y,4]"})
         }
         var node = new Node(64, 32 + 32 * Math.max(1, fn.length), pins);
-        node.setPos([x||0, y||0]);
+        node.setPos([0, 0]);
         node.label = fn.name;
         node.kern = {};
         node.kern["gpu"] = gpu.createKernel(fn)

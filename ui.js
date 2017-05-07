@@ -183,6 +183,8 @@ var scale_y = 1.0;
 
 var renderMode = "gpu";
 
+var gpu = new GPU();
+
 // .===========================================================================
 // | Mouse State Managers
 // '===========================================================================
@@ -359,7 +361,7 @@ DragMouseStateManager.prototype = {
         }
     },
     mousemove: function(e) {
-        // TODO should use e.movementX and movementY so have better behaviour
+        // TODO should use e.movementX and movementY to have better behaviour
         // when going off-canvas
         var g = screen_to_grid_coords([e.layerX, e.layerY]);
 
@@ -609,9 +611,9 @@ NodePin.prototype = {
 
         editorObjects.push(edge);
 
-        event.preventDefault();
+        e.preventDefault();
         redraw();
-        return new EdgePointStateManager(edge, event);
+        return new EdgePointStateManager(edge, e);
     },
 
     inBounds: function(x, y) {
